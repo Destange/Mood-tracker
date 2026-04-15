@@ -1493,7 +1493,7 @@ function buildStep(step){
   if(step === 'cafes_alcohol'){
     const w = stepWrap(idx, "Cafés, alcool & médicaments digestifs", "");
     const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:20px';
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr;gap:20px';
     grid.innerHTML = `
       <div>
         <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">☕ Cafés</div>
@@ -1527,7 +1527,7 @@ function buildStep(step){
           <button id="ca-plus-p">+</button>
         </div>
       </div>
-      <div style="grid-column:1/-1">
+      <div>
         <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">L-Tyrosine</div>
         <div style="display:flex;gap:8px;justify-content:center">
           ${[0,500,1000].map(v=>'<button id="ca-ltyr-'+v+'" class="btn'+(( (d.ltyrosine_mg??1000)===v)?' btn-primary':' btn-secondary')+'" style="min-width:70px">'+v+' mg</button>').join('')}
