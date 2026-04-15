@@ -708,6 +708,7 @@ function showView(name){
   if(name === 'history') renderHistory();
   if(name === 'stats') renderStats();
   if(name === 'settings') renderSettings();
+  document.getElementById('fab-quicknote').style.display = (name === 'entry' || name === 'edit-day') ? 'none' : 'flex';
 }
 
 /* ============================================================
