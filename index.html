@@ -1,0 +1,3663 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<title>Life Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0f1419;
+  --bg-2:#161c23;
+  --bg-3:#1f2730;
+  --bg-4:#2a3441;
+  --border:#2a3441;
+  --text:#e4e7eb;
+  --text-dim:#9aa5b1;
+  --text-faint:#6b7785;
+  --teal:#4ecdc4;
+  --teal-dim:#2a8a83;
+  --amber:#f5a623;
+  --amber-dim:#a06e15;
+  --red:#e74c3c;
+  --red-dim:#8a2a20;
+  --green:#5dbb63;
+  --purple:#9b6dff;
+  --shadow:0 4px 20px rgba(0,0,0,.35);
+  --radius:14px;
+  --radius-sm:8px;
+  --t:.25s cubic-bezier(.4,0,.2,1);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:16px;line-height:1.5;min-height:100vh;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+input:focus,textarea:focus,select:focus,button:focus{outline:2px solid var(--teal);outline-offset:2px}
+
+.app{max-width:720px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
+
+/* === HEADER === */
+.header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;padding-top:max(18px, env(safe-area-inset-top));border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;backdrop-filter:blur(8px)}
+.header h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.header-btn{padding:10px 14px;min-height:44px;border-radius:var(--radius-sm);background:var(--bg-3);color:var(--text-dim);font-size:14px;transition:var(--t);display:inline-flex;align-items:center}
+.header-btn:hover{background:var(--bg-4);color:var(--text)}
+
+/* === VIEWS === */
+.view{display:none;padding:24px 20px;flex:1;animation:fadeIn .3s ease}
+.view.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* === HOME === */
+.home-greeting{margin-bottom:24px;text-align:center}
+.home-greeting h2{font-size:24px;font-weight:600;margin:0 0 4px;letter-spacing:-.02em}
+.home-greeting p{color:var(--text-dim);margin:0;font-size:14px}
+.app-footer{text-align:center;padding:24px 20px 16px;font-size:11px;color:var(--text-faint)}
+.app-footer em{font-style:italic}
+.fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:var(--teal);color:var(--bg);font-size:28px;font-weight:300;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.4);z-index:20;transition:var(--t);line-height:1}
+.fab:hover{transform:scale(1.1);box-shadow:0 6px 24px rgba(0,0,0,.5)}
+.home-cards{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin-bottom:20px}
+.home-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;transition:var(--t);text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.home-card:hover{background:var(--bg-3);border-color:var(--teal-dim);transform:translateY(-2px)}
+.home-card.full{grid-column:1/-1}
+.home-card.primary{background:linear-gradient(135deg,var(--teal-dim) 0%,#1a5e58 100%);border-color:var(--teal)}
+.home-card.primary:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.home-card.session-done{opacity:.55;border-color:var(--teal-dim) !important;background:var(--bg-2)}
+.home-card.session-done:hover{transform:none;background:var(--bg-2)}
+.activities-cat-label{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:500;margin-top:8px}
+.qn-note-item{background:var(--bg-3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px}
+.qn-note-time{font-size:11px;color:var(--text-faint);margin-bottom:3px}
+.qn-note-text{font-size:14px;color:var(--text)}
+.home-card .label{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:500}
+.home-card.primary .label{color:rgba(255,255,255,.7)}
+.home-card .title{font-size:16px;font-weight:600}
+.home-card .desc{font-size:13px;color:var(--text-dim)}
+.home-card.primary .desc{color:rgba(255,255,255,.85)}
+.home-stats{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:20px}
+.home-stats h3{margin:0 0 14px;font-size:13px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:500}
+.home-stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 14px}
+.home-stat{text-align:center}
+.home-stat .num{font-size:22px;font-weight:600;color:var(--teal)}
+.home-stat .lbl{font-size:11px;color:var(--text-faint);margin-top:2px;line-height:1.3}
+.home-stats-regularity{font-size:11px;color:var(--text-faint);text-align:right;margin-bottom:10px}
+.home-note{background:var(--bg-2);border-left:3px solid var(--amber);padding:12px 14px;border-radius:var(--radius-sm);font-size:13px;color:var(--text-dim);margin-top:8px}
+.home-alert{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:10px;border:1px solid}
+.home-alert.alert-warning{background:rgba(245,166,35,.08);border-color:rgba(245,166,35,.3);color:var(--amber)}
+.home-alert.alert-danger{background:rgba(231,76,60,.08);border-color:rgba(231,76,60,.3);color:#e74c3c}
+.home-alert-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.home-alert-text strong{display:block;font-weight:600;margin-bottom:2px}
+.home-alert-text span{color:var(--text-dim);font-size:12px}
+
+/* === ENTRY GUIDED === */
+.entry-progress{height:3px;background:var(--bg-3);border-radius:2px;margin-bottom:24px;overflow:hidden}
+.entry-progress-bar{height:100%;background:linear-gradient(90deg,var(--teal),var(--amber));transition:width .4s cubic-bezier(.4,0,.2,1);width:0%}
+.entry-step{animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+.entry-step .step-num{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.entry-step h2{font-size:22px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em;line-height:1.3}
+.entry-step .step-help{color:var(--text-dim);font-size:14px;margin:0 0 28px}
+.entry-controls{display:flex;justify-content:space-between;gap:12px;margin-top:36px}
+.btn{padding:14px 24px;min-height:48px;border-radius:var(--radius);font-weight:600;font-size:15px;transition:var(--t);display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn-primary{background:var(--teal);color:var(--bg)}
+.btn-primary:hover{background:#5fdcd3;transform:translateY(-1px)}
+.btn-primary:disabled{background:var(--bg-4);color:var(--text-faint);cursor:not-allowed;transform:none}
+.btn-secondary{background:var(--bg-3);color:var(--text-dim)}
+.btn-secondary:hover{background:var(--bg-4);color:var(--text)}
+.btn-danger{background:var(--red-dim);color:#fff}
+.btn-danger:hover{background:var(--red)}
+.btn-block{width:100%}
+
+/* slider */
+.slider-wrap{margin:8px 0}
+.slider-value{text-align:center;font-size:48px;font-weight:600;color:var(--teal);margin-bottom:8px;font-variant-numeric:tabular-nums}
+.slider-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+input[type=range]{width:100%;-webkit-appearance:none;background:transparent;height:36px}
+input[type=range]::-webkit-slider-runnable-track{height:6px;background:linear-gradient(90deg,var(--bg-4),var(--teal));border-radius:3px}
+input[type=range]::-moz-range-track{height:6px;background:var(--bg-4);border-radius:3px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:var(--teal);margin-top:-9px;border:3px solid var(--bg);box-shadow:0 2px 8px rgba(78,205,196,.4)}
+input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:var(--teal);border:3px solid var(--bg)}
+
+/* number input */
+.num-input{display:flex;align-items:center;justify-content:center;gap:18px;margin:8px 0}
+.num-input button{width:48px;height:48px;border-radius:50%;background:var(--bg-3);font-size:22px;font-weight:600;transition:var(--t)}
+.num-input button:hover{background:var(--bg-4)}
+.num-input input{width:80px;text-align:center;font-size:32px;font-weight:600;background:transparent;border:none;color:var(--teal);padding:8px;font-variant-numeric:tabular-nums}
+.num-input .unit{font-size:14px;color:var(--text-faint);margin-left:-12px}
+
+/* radio cards */
+.radio-cards{display:flex;flex-direction:column;gap:10px}
+.radio-card{padding:16px 18px;background:var(--bg-2);border:2px solid var(--border);border-radius:var(--radius);transition:var(--t);cursor:pointer;display:flex;align-items:center;gap:14px}
+.radio-card:hover{border-color:var(--bg-4)}
+.radio-card.selected{border-color:var(--teal);background:rgba(78,205,196,.08)}
+.radio-card .indicator{width:18px;height:18px;border-radius:50%;border:2px solid var(--bg-4);flex-shrink:0;transition:var(--t)}
+.radio-card.selected .indicator{border-color:var(--teal);background:var(--teal);box-shadow:inset 0 0 0 3px var(--bg-2)}
+.radio-card .text{flex:1}
+.radio-card .text strong{display:block;font-weight:600;font-size:15px}
+.radio-card .text small{display:block;color:var(--text-faint);font-size:12px;margin-top:2px}
+.radio-card.danger.selected{border-color:var(--red);background:rgba(231,76,60,.08)}
+.radio-card.danger.selected .indicator{border-color:var(--red);background:var(--red)}
+
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:12px 16px;min-height:44px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:24px;font-size:14px;transition:var(--t);cursor:pointer;display:inline-flex;align-items:center}
+.chip:hover{border-color:var(--bg-4)}
+.chip.selected{background:rgba(78,205,196,.12);border-color:var(--teal);color:var(--teal)}
+
+/* meds */
+.meds-grid{display:flex;flex-direction:column;gap:18px}
+.med-row{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.med-row .name{font-weight:600;font-size:15px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center}
+.med-row .suggested{font-size:12px;color:var(--amber);background:rgba(245,166,35,.1);padding:3px 8px;border-radius:10px;font-weight:500}
+.med-row .desc{font-size:12px;color:var(--text-faint);margin-bottom:12px}
+
+/* textarea / text input */
+textarea,input[type=text],input[type=time],input[type=date]{width:100%;padding:14px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:var(--radius-sm);transition:var(--t);font-size:16px}
+textarea:focus,input[type=text]:focus,input[type=time]:focus,input[type=date]:focus{border-color:var(--teal);outline:none}
+textarea{min-height:100px;resize:vertical;font-family:inherit}
+
+/* recap */
+.recap-grid{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:20px}
+.recap-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px}
+.recap-row:last-child{border-bottom:none}
+.recap-row .k{color:var(--text-faint)}
+.recap-row .v{color:var(--text);font-weight:500;text-align:right;max-width:60%}
+
+/* === HISTORY === */
+.history-list{display:flex;flex-direction:column;gap:10px}
+.history-item{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;transition:var(--t);cursor:pointer}
+.history-item:hover{background:var(--bg-3);border-color:var(--bg-4)}
+.history-item-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.history-item-date{font-weight:600;font-size:14px}
+.history-item-metrics{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.metric-mini{display:flex;align-items:center;gap:7px}
+.metric-mini-label{font-size:12px;color:var(--text-faint);width:60px;flex-shrink:0;text-align:right}
+.bar-mini{flex:1;height:4px;background:var(--bg-4);border-radius:2px;overflow:hidden}
+.bar-mini-fill{height:100%;background:var(--teal);transition:width .3s}
+.metric-mini-val{font-size:12px;color:var(--text-dim);width:26px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
+.history-empty{text-align:center;color:var(--text-faint);padding:60px 20px;font-size:14px}
+
+/* === STATS === */
+.stats-tabs{display:flex;gap:6px;background:var(--bg-2);border-radius:var(--radius);padding:4px;margin-bottom:20px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.stats-tab{padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;color:var(--text-dim);font-weight:500;white-space:nowrap;transition:var(--t);flex-shrink:0}
+.stats-tab:hover{color:var(--text)}
+.stats-tab.active{background:var(--bg-4);color:var(--teal)}
+.stats-section{margin-bottom:24px}
+.stats-section h3{font-size:13px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:500;margin:0 0 12px}
+.stats-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.chart-wrap{position:relative;height:240px;margin-top:8px}
+.chart-wrap.tall{height:300px}
+
+/* heatmap */
+.heatmap{display:flex;flex-direction:column;gap:16px}
+.heatmap-month{}
+.heatmap-month-label{font-size:12px;color:var(--text-faint);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
+.heatmap-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.heatmap-cell{aspect-ratio:1;border-radius:3px;background:var(--bg-3);position:relative;cursor:pointer;transition:var(--t)}
+.heatmap-cell:hover{transform:scale(1.15);z-index:5}
+.heatmap-cell.empty{background:var(--bg-3);opacity:.4}
+.heatmap-cell.future{background:transparent;opacity:0}
+.heatmap-metric-selector{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.heatmap-metric-btn{padding:7px 13px;border-radius:20px;font-size:12px;font-weight:500;background:var(--bg-3);border:1.5px solid var(--border);color:var(--text-faint);transition:var(--t);cursor:pointer}
+.heatmap-metric-btn:hover{color:var(--text);border-color:var(--bg-4)}
+.heatmap-metric-btn.active{background:rgba(78,205,196,.12);border-color:var(--teal);color:var(--teal)}
+.heatmap-legend{display:flex;align-items:center;gap:6px;margin-top:14px;font-size:11px;color:var(--text-faint)}
+.heatmap-legend-cells{display:flex;gap:3px}
+.heatmap-legend-cell{width:12px;height:12px;border-radius:2px}
+
+/* correlation */
+.corr-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:12px}
+.corr-card .corr-title{font-weight:600;font-size:14px;margin-bottom:4px}
+.corr-card .corr-desc{font-size:12px;color:var(--text-faint);margin-bottom:14px}
+.corr-card .corr-result{display:flex;align-items:baseline;gap:10px}
+.corr-card .corr-r{font-size:32px;font-weight:600;font-variant-numeric:tabular-nums}
+.corr-card .corr-r.strong{color:var(--teal)}
+.corr-card .corr-r.medium{color:var(--amber)}
+.corr-card .corr-r.weak{color:var(--text-faint)}
+.corr-card .corr-meaning{font-size:13px;color:var(--text-dim)}
+
+/* === SETTINGS === */
+.settings-section{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px}
+.settings-section h3{margin:0 0 4px;font-size:15px;font-weight:600}
+.settings-section .help{font-size:12px;color:var(--text-faint);margin:0 0 14px}
+.settings-section .actions{display:flex;flex-wrap:wrap;gap:8px}
+.settings-section .actions .btn{flex:1;min-width:120px;padding:10px 14px;font-size:14px}
+
+/* toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-4);color:var(--text);padding:14px 22px;border-radius:var(--radius);box-shadow:var(--shadow);font-size:14px;font-weight:500;opacity:0;transition:var(--t);pointer-events:none;z-index:100;border:1px solid var(--border);max-width:90%}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.success{border-color:var(--teal-dim)}
+.toast.error{border-color:var(--red-dim)}
+
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:20px;backdrop-filter:blur(4px)}
+.modal-bg.show{display:flex}
+.modal{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:440px;width:100%;max-height:90vh;overflow-y:auto}
+.modal h3{margin:0 0 8px;font-size:18px}
+.modal p{color:var(--text-dim);font-size:14px;margin:0 0 18px}
+.modal-actions{display:flex;gap:10px}
+.modal-actions .btn{flex:1}
+
+/* === MOBILE === */
+@media(max-width:480px){
+  .view{padding:18px 14px}
+  .header{padding:12px 14px;padding-top:max(12px, env(safe-area-inset-top))}
+  .home-cards{grid-template-columns:1fr}
+  .home-stats-grid{grid-template-columns:1fr 1fr}
+  .slider-value{font-size:42px}
+  .entry-step h2{font-size:20px}
+  .skin-grid{grid-template-columns:1fr 1fr}
+  .weekly-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stats-tab{padding:10px 12px;font-size:12px}
+  .recap-row{font-size:13px}
+  .recap-row .v{max-width:55%}
+  .corr-card .corr-r{font-size:26px}
+  .settings-section .actions .btn{min-width:100px;padding:10px 10px;font-size:13px}
+  .modal{padding:18px;max-width:100%}
+}
+.edit-day-section{margin-bottom:24px}
+.edit-day-section h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin:0 0 10px;font-weight:500}
+.edit-day-row{display:flex;align-items:center;gap:10px;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+.edit-day-row:hover{border-color:var(--teal)}
+.edit-day-row-label{font-size:14px;color:var(--text-dim);flex:1}
+.edit-day-row-value{font-size:13px;color:var(--text-faint);text-align:right;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edit-day-row-arrow{color:var(--text-faint);font-size:18px;flex-shrink:0}
+.weekly-table{width:100%;border-collapse:collapse;font-size:13px}
+.weekly-table th{color:var(--text-faint);font-weight:500;text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+.weekly-table th:not(:first-child){text-align:center}
+.weekly-table td{padding:7px 6px;border-bottom:1px solid var(--bg-3);color:var(--text-dim)}
+.weekly-table td:first-child{color:var(--text);white-space:nowrap}
+.weekly-table tr:last-child td{border-bottom:none}
+.weekly-table td:not(:first-child){text-align:center;font-variant-numeric:tabular-nums}
+.history-search{width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;color:var(--text);font-size:14px;margin-bottom:14px;box-sizing:border-box}
+.history-search:focus{outline:none;border-color:var(--teal)}
+.skin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+.skin-card{background:var(--bg-3);border:2px solid var(--border);border-radius:var(--radius-sm);padding:8px 6px;text-align:center;cursor:pointer;transition:var(--t);position:relative}
+.skin-card.active{border-color:var(--teal)}
+.skin-card:hover:not(.active){border-color:var(--teal-dim)}
+.skin-preview{border-radius:6px;overflow:hidden;margin-bottom:7px;height:72px;position:relative;background:var(--sp-bg)}
+.sp-header{height:13px;background:var(--sp-bg);border-bottom:1px solid var(--sp-border)}
+.sp-body{padding:4px;display:flex;flex-direction:column;gap:3px}
+.sp-card{background:var(--sp-bg2);border:1px solid var(--sp-border);border-radius:3px;height:14px;display:flex;align-items:center;padding:0 4px;gap:3px}
+.sp-dot{width:6px;height:6px;border-radius:50%;background:var(--sp-accent);flex-shrink:0}
+.sp-line{height:2px;background:var(--sp-bg3);flex:1;border-radius:1px}
+.sp-bar{height:4px;width:60%;border-radius:1px;background:var(--sp-accent);opacity:.7}
+.sp-fab{position:absolute;bottom:5px;right:6px;width:11px;height:11px;border-radius:50%;background:var(--sp-accent)}
+.skin-name{font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px}
+.skin-desc{font-size:12px;color:var(--text-faint);line-height:1.3}
+.skin-check{position:absolute;top:5px;right:6px;color:var(--teal);font-size:14px;font-weight:700;line-height:1}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="header" id="header">
+    <h1>Life Tracker</h1>
+    <div style="display:flex;gap:8px">
+      <button class="header-btn" id="btn-home">Accueil</button>
+    </div>
+  </header>
+
+  <!-- ============ HOME ============ -->
+  <div class="view active" id="view-home">
+    <div class="home-greeting">
+      <h2 id="greeting-text">Bonsoir</h2>
+      <p id="greeting-date"></p>
+    </div>
+
+    <div class="home-stats" id="home-stats-block">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+        <h3 style="margin:0;font-size:13px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:500">Aperçu — 7 jours</h3>
+        <span class="home-stats-regularity" id="stat-regularity"></span>
+      </div>
+      <div class="home-stats-grid">
+        <div class="home-stat"><div class="num" id="stat-mood">—</div><div class="lbl">Humeur <span id="trend-mood"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-anxiety">—</div><div class="lbl">Anxiété <span id="trend-anxiety"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-sleep">—</div><div class="lbl">Sommeil <span id="trend-sleep"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-energy">—</div><div class="lbl">Énergie <span id="trend-energy"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-fog">—</div><div class="lbl">Brouillard <span id="trend-fog"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-blunting">—</div><div class="lbl">Sensib. émot. <span id="trend-blunting"></span></div></div>
+      </div>
+    </div>
+
+    <div id="home-alerts"></div>
+
+    <div class="home-cards">
+      <button class="home-card primary" id="card-entry-morning">
+        <div class="label" id="morning-card-label">Matin</div>
+        <div class="title" id="morning-card-title">Session réveil</div>
+        <div class="desc" id="morning-card-desc">Sommeil · humeur · énergie</div>
+      </button>
+      <button class="home-card" id="card-entry-evening">
+        <div class="label" id="evening-card-label">Soir</div>
+        <div class="title" id="evening-card-title">Session coucher</div>
+        <div class="desc" id="evening-card-desc">Doses · humeur · effets</div>
+      </button>
+      <button class="home-card" id="card-history">
+        <div class="label">Données</div>
+        <div class="title">Historique</div>
+        <div class="desc">Voir / éditer les jours précédents</div>
+      </button>
+      <button class="home-card" id="card-stats">
+        <div class="label">Visualisations</div>
+        <div class="title">Statistiques</div>
+        <div class="desc">Courbes, heatmap, corrélations</div>
+      </button>
+      <button class="home-card full" id="card-settings">
+        <div class="label">Configuration</div>
+        <div class="title">Réglages &amp; export</div>
+        <div class="desc">Schéma de sevrage, export, réglages</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ ENTRY GUIDED ============ -->
+  <div class="view" id="view-entry">
+    <div class="entry-progress"><div class="entry-progress-bar" id="entry-progress-bar"></div></div>
+    <div id="entry-step-container"></div>
+    <div class="entry-controls">
+      <button class="btn btn-secondary" id="entry-back">Retour</button>
+      <button class="btn btn-primary" id="entry-next">Suivant</button>
+    </div>
+  </div>
+
+  <!-- ============ HISTORY ============ -->
+  <div class="view" id="view-history">
+    <h2 style="margin:0 0 16px;font-size:22px">Historique</h2>
+    <input class="history-search" id="history-search" type="search" placeholder="Rechercher une date ou une note…" autocomplete="off">
+    <div id="history-list-wrap"></div>
+  </div>
+
+  <!-- ============ EDIT DAY ============ -->
+  <div class="view" id="view-edit-day">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+      <button class="btn btn-secondary" id="edit-day-back" style="padding:8px 14px;font-size:13px">← Retour</button>
+      <h2 id="edit-day-title" style="margin:0;font-size:20px;flex:1"></h2>
+    </div>
+    <div id="edit-day-nav" style="display:flex;justify-content:space-between;gap:10px;margin-bottom:20px"></div>
+    <div id="edit-day-content"></div>
+  </div>
+
+  <!-- ============ STATS ============ -->
+  <div class="view" id="view-stats">
+    <h2 style="margin:0 0 16px;font-size:22px">Statistiques</h2>
+    <div class="stats-tabs" id="stats-tabs">
+      <button class="stats-tab active" data-tab="curves">Courbes</button>
+      <button class="stats-tab" data-tab="heatmap">Heatmap</button>
+      <button class="stats-tab" data-tab="meds">Doses</button>
+      <button class="stats-tab" data-tab="corr">Corrélations</button>
+      <button class="stats-tab" data-tab="side_effects">Ressentis nég.</button>
+      <button class="stats-tab" data-tab="positive_feelings">Ress. pos.</button>
+      <button class="stats-tab" data-tab="activities_impact">Activités</button>
+      <button class="stats-tab" data-tab="weekly">Hebdo</button>
+    </div>
+    <div id="stats-content"></div>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <div class="view" id="view-settings">
+    <h2 style="margin:0 0 16px;font-size:22px">Réglages</h2>
+
+    <div class="settings-section">
+      <h3>Schéma de sevrage paroxétine</h3>
+      <p class="help">Pré-rempli selon ce que ton psychiatre a indiqué. Modifiable ici.</p>
+      <div id="taper-display"></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-secondary" id="btn-edit-taper">Modifier le schéma</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Doses habituelles</h3>
+      <p class="help">Valeurs pré-remplies à chaque saisie (modifiables au cas par cas).</p>
+      <div id="defaults-display"></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-secondary" id="btn-edit-defaults">Modifier les doses par défaut</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Rappels</h3>
+      <p class="help">Reçois une notification si une session n'est pas remplie (fonctionne quand l'app est ouverte).</p>
+      <div class="actions">
+        <button class="btn btn-secondary" id="btn-toggle-notif">Activer les rappels</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Apparence</h3>
+      <p class="help">Choisis un thème. L'aperçu s'applique immédiatement sur toute l'app.</p>
+      <div class="skin-grid" id="skin-picker"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Sauvegarde</h3>
+      <p class="help">Exporte régulièrement tes données.</p>
+      <div class="actions">
+        <button class="btn btn-primary" id="btn-export-pdf">Résumé PDF (consultation)</button>
+      </div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn btn-secondary" id="btn-export-json">Export JSON</button>
+        <button class="btn btn-secondary" id="btn-export-csv">Export CSV</button>
+        <button class="btn btn-secondary" id="btn-export-md">Export Markdown</button>
+      </div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn btn-secondary" id="btn-import">Importer un JSON</button>
+        <input type="file" id="import-file" accept=".json" style="display:none">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Zone dangereuse</h3>
+      <p class="help">Supprime toutes les données stockées dans ce navigateur. Action irréversible.</p>
+      <div class="actions">
+        <button class="btn btn-danger" id="btn-reset">Tout effacer</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.4</footer>
+
+</div>
+
+<button class="fab" id="fab-quicknote" title="Note rapide">+</button>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   TRACKER V1.6.3 — JS
+   Architecture: vues, état, storage, entry guidée, stats, export
+   ============================================================ */
+
+const VERSION = '1.6.4';
+const STORAGE_DATA = 'tracker_v1_data';
+
+/* ===== ÉTAT GLOBAL ===== */
+const state = {
+  data: null, // {schema_version, settings, entries}
+  currentView: 'home',
+  entryDraft: null,
+  entryStep: 0,
+  entrySession: 'morning', // 'morning' | 'evening'
+  entrySteps: [],
+  editingEntryId: null,
+  singleStepEdit: false,
+  statsTab: 'curves',
+  heatmapMetric: 'mood_evening',
+  charts: {}
+};
+
+/* ============================================================
+   STORAGE — plain JSON in localStorage
+   ============================================================ */
+
+function loadData(){
+  const raw = localStorage.getItem(STORAGE_DATA);
+  if(!raw){
+    state.data = defaultData();
+    saveData();
+    return;
+  }
+  try{
+    state.data = JSON.parse(raw);
+    if(!state.data.settings) state.data.settings = defaultData().settings;
+    if(!state.data.entries) state.data.entries = [];
+    if(!state.data.quicknotes) state.data.quicknotes = [];
+    if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
+    if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
+  }catch(e){
+    console.error('Corrupted data, resetting', e);
+    state.data = defaultData();
+    saveData();
+  }
+}
+
+function saveData(){
+  if(!state.data) return;
+  localStorage.setItem(STORAGE_DATA, JSON.stringify(state.data));
+}
+
+function defaultData(){
+  return {
+    schema_version: VERSION,
+    created_at: new Date().toISOString(),
+    settings: {
+      // Schéma de sevrage paroxétine du psychiatre (configurable)
+      paroxetine_taper: [
+        {from: '2026-04-08', to: '2026-04-14', mg: 10, mode: 'daily'},
+        {from: '2026-04-15', to: '2026-04-21', mg: 10, mode: 'every_other_day'},
+        {from: '2026-04-22', to: null, mg: 0, mode: 'daily'}
+      ],
+      defaults: {
+        mianserine_mg: 30,
+        oxazepam_mg: 0
+      },
+      treatment_start: '2026-01-27',
+      skin: 'minuit'
+    },
+    entries: [],
+    quicknotes: []
+  };
+}
+
+/* ============================================================
+   FIELD DEFINITIONS — auto-descriptive pour réingestion IA
+   ============================================================ */
+
+const FIELD_DEFS = {
+  date: {type:'date', label:"Date de l'entrée"},
+  created_at: {type:'datetime-iso', label:"Horodatage de saisie"},
+  morning_done: {type:'boolean', label:"Session matin enregistrée"},
+  evening_done: {type:'boolean', label:"Session soir enregistrée"},
+  // --- Session matin ---
+  sleep_bedtime: {type:'time', label:"Heure de coucher (veille)"},
+  sleep_waketime: {type:'time', label:"Heure de lever"},
+  sleep_duration_min: {type:'integer', label:"Durée de sommeil estimée (minutes)"},
+  sleep_quality: {type:'integer-0-10', label:"Qualité subjective du sommeil"},
+  wake_count: {type:'integer-0+', label:"Nombre de réveils nocturnes"},
+  dream_quality: {type:'integer-0-3', label:"Qualité des rêves (0=aucun souvenir, 3=rêves complexes)"},
+  nightmare: {type:'boolean', label:"Cauchemar signalé"},
+  nightmare_note: {type:'text', label:"Description du cauchemar (optionnel)"},
+  mood_morning: {type:'integer-0-10', label:"Humeur au réveil (0=très basse, 10=très haute)"},
+  brain_fog_morning: {type:'integer-0-10', label:"Brouillard mental au réveil (0=clair, 10=très embrumé)"},
+  energy_morning: {type:'integer-0-10', label:"Énergie au réveil (0=épuisé, 10=disponible)"},
+  note_morning: {type:'text', label:"Note libre — session matin"},
+  weight_kg: {type:'number', label:"Poids (kg, optionnel)"},
+  // --- Session soir ---
+  paroxetine_mg: {type:'number-mg', label:"Dose de paroxétine prise (mg)"},
+  mianserine_mg: {type:'number-mg', label:"Dose de miansérine prise (mg)"},
+  oxazepam_mg: {type:'number-mg', label:"Dose totale d'oxazépam prise (mg)"},
+  energy: {type:'integer-0-10', label:"Énergie du jour — bilan (0=épuisé, 10=disponible)"},
+  anxiety: {type:'integer-0-10', label:"Anxiété du jour — bilan (0=aucune, 10=très intense)"},
+  brain_fog: {type:'integer-0-10', label:"Brouillard mental — bilan journée (0=clair, 10=très embrumé)"},
+  blunting: {type:'integer--5-5', label:"Sensibilité émotionnelle (−5=absent, 0=neutre, +5=hypersensible)"},
+  mood_evening: {type:'integer-0-10', label:"Appréciation de la journée (0=très mauvaise, 10=très bonne)"},
+  suicidal: {type:'enum', values:['aucune','fugaces','presentes','intenses'], label:"Idéations suicidaires"},
+  suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
+  rgo: {type:'boolean', label:"RGO présent"},
+  rgo_intensity: {type:'integer-0-10', label:"Intensité du RGO si présent"},
+  side_effects: {type:'array-enum', values:['asthenie','bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','diarrhee','eruption_cutanee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','somnolence','tremblements','vertiges','irritabilite','autre'], label:"Ressentis négatifs de la journée"},
+  side_effects_other: {type:'text', label:"Précision si 'autre' coché"},
+  positive_feelings: {type:'array-enum', label:"Ressentis positifs de la journée"},
+  cafes_count: {type:'integer-0+', label:"Nombre de cafés dans la journée"},
+  alcohol_units: {type:'number', label:"Verres d'alcool dans la journée"},
+  gaviscon_doses: {type:'integer-0+', label:"Doses de Gaviscon"},
+  pantoprazole_doses: {type:'integer-0+', label:"Doses de Pantoprazole (20mg)"},
+  physical_activity: {type:'integer-0-3', label:"Niveau d'activité physique (0=sédentaire, 3=cardio)"},
+  social_media_min: {type:'integer-0+', label:"Temps sur les réseaux sociaux (minutes)"},
+  activities: {type:'array-enum', label:"Activités du jour"},
+  activities_other: {type:'text', label:"Activité personnalisée (Autre)"},
+  activities_note: {type:'text', label:"Note libre sur les activités"},
+  notable_event: {type:'boolean', label:"Événement marquant dans la journée"},
+  notable_event_text: {type:'text', label:"Description de l'événement marquant"},
+  free_note: {type:'text', label:"Note libre — session soir"}
+};
+
+const POSITIVE_FEELING_LABELS = {
+  accomplissement: 'Accomplissement',
+  ancre:           'Ancré',
+  beaute:          'Beauté',
+  calme:           'Calme',
+  compris:         'Compris',
+  confiant:        'Confiant',
+  connecte:        'Connecté',
+  creatif:         'Créatif',
+  en_forme:        'En forme',
+  epanoui:         'Épanoui',
+  espoir:          'Espoir',
+  excitation:      'Excitation',
+  fier:            'Fier',
+  fluide:          'Fluide',
+  gratitude:       'Reconnaissant',
+  heureux:         'Heureux',
+  inspire:         'Inspiré',
+  joie:            'Joie',
+  leger:           'Léger',
+  lucide:          'Lucide',
+  motive:          'Motivé',
+  serenite:        'Serein',
+  utile:           'Utile',
+  vivant:          'Vivant',
+  zoomies:         'Zoomies',
+  positif:         'Positif'
+};
+
+const SIDE_EFFECT_LABELS = {
+  asthenie: 'Asthénie matinale',
+  bouche_seche: 'Bouche sèche',
+  brain_zaps: 'Brain zaps',
+  brouillard_mental: 'Brouillard mental',
+  cauchemars: 'Cauchemars',
+  constipation: 'Constipation',
+  cordes_vocales: 'Cordes vocales altérées',
+  courbatures: 'Courbatures',
+  diarrhee: 'Diarrhée',
+  eruption_cutanee: 'Éruption cutanée',
+  fatigue_generale: 'Fatigue générale',
+  fievre: 'Fièvre',
+  frissons: 'Frissons',
+  grande_faim: 'Grande faim',
+  grignotages: 'Grignotages',
+  mal_tete: 'Maux de tête',
+  nausees: 'Nausées',
+  pas_appetit: "Pas d'appétit",
+  pleurs: 'Pleurs',
+  deconnecte: 'Déconnecté',
+  somnolence: 'Somnolence matinale',
+  tremblements: 'Tremblements',
+  vertiges: 'Vertiges',
+  irritabilite: 'Irritabilité',
+  autre: 'Autre'
+};
+
+const SKINS = {
+  minuit:    { name:'Minuit',     desc:'Bleu nuit · Teal',       bg:'#0f1419',bg2:'#161c23',bg3:'#1f2730',bg4:'#2a3441',border:'#2a3441',text:'#e4e7eb',dim:'#9aa5b1',faint:'#6b7785',accent:'#4ecdc4',accentDim:'#2a8a83',amber:'#f5a623',amberDim:'#a06e15' },
+  obsidienne:{ name:'Obsidienne', desc:'Noir profond · Violet',   bg:'#0e0c14',bg2:'#141120',bg3:'#1c1828',bg4:'#252135',border:'#2e2845',text:'#e8e5f5',dim:'#9e9ac0',faint:'#6b6890',accent:'#7c6cf5',accentDim:'#4a3faa',amber:'#f5a623',amberDim:'#a06e15' },
+  braise:    { name:'Braise',     desc:'Charbon · Cuivre',        bg:'#120e09',bg2:'#1c1510',bg3:'#261c14',bg4:'#33251a',border:'#3d2e20',text:'#f0e8de',dim:'#b8a08a',faint:'#7a6550',accent:'#e87d3e',accentDim:'#9e4e20',amber:'#f5c842',amberDim:'#a08a15' },
+  foret:     { name:'Forêt',      desc:'Vert sombre · Émeraude',  bg:'#09120d',bg2:'#0f1a13',bg3:'#152319',bg4:'#1d2e22',border:'#253828',text:'#e0f0e4',dim:'#8ab8a0',faint:'#5c8068',accent:'#4dd896',accentDim:'#2a8a55',amber:'#d4e83a',amberDim:'#8a9a1f' },
+  amethyste: { name:'Améthyste',  desc:'Violet profond · Rose',   bg:'#110c1a',bg2:'#181024',bg3:'#20162f',bg4:'#2c1e3e',border:'#3c2858',text:'#eee4f8',dim:'#b09ac8',faint:'#7a60a0',accent:'#c46bf5',accentDim:'#803aaa',amber:'#f5a623',amberDim:'#a06e15' },
+  acier:     { name:'Acier',      desc:'Bleu marine · Azur',      bg:'#09101e',bg2:'#0d1628',bg3:'#121e36',bg4:'#182842',border:'#1e3355',text:'#dceeff',dim:'#7ba8d0',faint:'#4d7a9a',accent:'#4a9eff',accentDim:'#2a60b0',amber:'#f5c842',amberDim:'#a08a15' }
+};
+
+const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','mood_morning','weight','note_morning'];
+const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','social_media','side_effects','positive_feelings','energy','brain_fog','anxiety','activities','physical_activity','suicidal','blunting','notable_event','mood_evening','note'];
+const STEP_LABELS = {
+  sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
+  dreams:'Rêves & cauchemars', mood_morning:'Humeur au réveil',
+  weight:'Poids', note_morning:'Note du matin',
+  meds:'Médicaments', cafes_alcohol:'Cafés & alcool', energy:'Énergie globale', anxiety:'Anxiété', brain_fog:'Brouillard mental (journée)',
+  blunting:'Sensibilité émotionnelle', mood_evening:'Humeur globale', suicidal:'Pensées suicidaires',
+  rgo:'Reflux (RGO)', side_effects:'Ressentis négatifs', positive_feelings:'Ressentis positifs ✨',
+  activities:'Activités du jour', physical_activity:'Activité physique', social_media:'Réseaux sociaux', notable_event:'Événement marquant', note:'Note libre'
+};
+
+const ACTIVITY_CATEGORIES = [
+  { label: '💼 Travail & Formation', items: ['Administratif', 'Auto-Formation', 'Composition', 'Concert', 'Cours / Atelier', 'Enregistrement', 'Montage Vidéo', 'Productivité', 'Répétition', 'Stream'] },
+  { label: '🧠 Mental', items: ['Chill', 'Doom Scroll', 'Hyperactivité', 'Hyperfocus'] },
+  { label: '🗣️ Social', items: ['Discussion Profonde', 'Interaction Sociale', 'Moment Intime'] },
+  { label: '🏥 Santé', items: ['Dentiste', 'Médecin Généraliste', 'Psychiatre', 'Psychologue', 'RDV Médical'] },
+  { label: '🏃 Mouvement', items: ['Activité Sportive', 'Manutention', 'Pas sorti', 'Sortie Nature', 'Sortie Ville', 'Tourisme'] },
+  { label: '🏠 Quotidien', items: ['Cuisine', 'Rangement', 'Tâches Ménagères'] },
+  { label: '🚗 Déplacements', items: ['Trajet Train', 'Trajet Vélo', 'Trajet Voiture'] },
+  { label: '🎮 Loisirs', items: ['Détente Culturelle', 'Dev', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Ordinateur', 'Sortie Culturelle'] },
+  { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Léodi', 'Luca', 'Mathieu', 'Orilia', 'Yann', 'Solitude'] }
+];
+
+/* ============================================================
+   VUES — routing
+   ============================================================ */
+
+let _skipPush = false;
+function showView(name){
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  state.currentView = name;
+  window.scrollTo(0, 0);
+  if(!_skipPush) history.pushState({view:name}, '');
+  if(name === 'home') renderHome();
+  if(name === 'history') renderHistory();
+  if(name === 'stats') renderStats();
+  if(name === 'settings') renderSettings();
+}
+
+/* ============================================================
+   HOME
+   ============================================================ */
+
+function computeAlerts(entries){
+  const alerts = [];
+  if(!entries || entries.length < 2) return alerts;
+
+  // Trier par date desc pour analyser les N derniers jours
+  const sorted = entries.slice().sort((a,b) => b.date.localeCompare(a.date));
+
+  // Alerte 1 : 3 jours consécutifs d'humeur < 3
+  const moodLow = sorted.slice(0, 3).filter(e => e.evening_done && typeof e.mood_evening === 'number' && e.mood_evening < 3);
+  if(moodLow.length >= 3){
+    alerts.push({
+      level: 'danger',
+      icon: '⚠️',
+      title: '3 jours d\'humeur très basse consécutifs',
+      detail: 'Humeur < 3 les 3 derniers jours renseignés. À mentionner à ton suivi médical.'
+    });
+  } else if(moodLow.length === 2 && sorted.slice(0, 5).filter(e => e.evening_done && typeof e.mood_evening === 'number' && e.mood_evening < 3).length >= 4){
+    // 4+ jours sur 5 avec humeur basse
+    alerts.push({
+      level: 'warning',
+      icon: '⚡',
+      title: 'Humeur basse fréquente cette semaine',
+      detail: 'Plusieurs jours avec humeur < 3 sur les 5 derniers jours renseignés.'
+    });
+  }
+
+  // Alerte 2 : idéations non-aucune 2 jours consécutifs
+  const suicidalDays = sorted.slice(0, 4).filter(e => e.evening_done && e.suicidal && e.suicidal !== 'aucune');
+  if(suicidalDays.length >= 2){
+    const isIntense = suicidalDays.some(e => e.suicidal === 'intenses');
+    alerts.push({
+      level: isIntense ? 'danger' : 'warning',
+      icon: isIntense ? '🆘' : '⚠️',
+      title: isIntense ? 'Idéations intenses signalées' : 'Idéations présentes plusieurs jours',
+      detail: isIntense
+        ? 'Des idéations intenses ont été notées récemment. Contacte ton médecin ou le 3114.'
+        : 'Des idéations ont été notées sur plusieurs jours consécutifs. À surveiller et signaler.'
+    });
+  }
+
+  // Alerte 3 : anxiété >= 8 trois jours consécutifs
+  const anxHigh = sorted.slice(0, 3).filter(e => e.evening_done && typeof e.anxiety === 'number' && e.anxiety >= 8);
+  if(anxHigh.length >= 3){
+    alerts.push({
+      level: 'warning',
+      icon: '⚡',
+      title: 'Anxiété très élevée sur 3 jours',
+      detail: 'Anxiété ≥ 8/10 les 3 derniers jours renseignés. Pense à en parler.'
+    });
+  }
+
+  return alerts;
+}
+
+function renderAlerts(){
+  const wrap = document.getElementById('home-alerts');
+  if(!wrap) return;
+  const alerts = computeAlerts(state.data.entries);
+  if(alerts.length === 0){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = alerts.map(a => `
+    <div class="home-alert alert-${a.level}">
+      <div class="home-alert-icon">${a.icon}</div>
+      <div class="home-alert-text"><strong>${a.title}</strong><span>${a.detail}</span></div>
+    </div>
+  `).join('');
+}
+
+function renderHome(){
+  const now = new Date();
+  const h = now.getHours();
+  let greet = 'Bonsoir';
+  if(h < 18) greet = 'Bonjour';
+  document.getElementById('greeting-text').textContent = greet;
+  document.getElementById('greeting-date').textContent = now.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
+
+  // Stats rapides — fenêtre calendaire de 7 jours
+  const allEntries = state.data.entries;
+  const entryMap7 = {};
+  allEntries.forEach(e => { entryMap7[e.date] = e; });
+
+  const calDays = (offsetEnd, count) => {
+    const arr = [];
+    for(let i = offsetEnd; i < offsetEnd + count; i++){
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const k = d.toISOString().slice(0,10);
+      if(entryMap7[k]) arr.push(entryMap7[k]);
+    }
+    return arr;
+  };
+  const last7cal = calDays(0, 7);
+  const prev7cal = calDays(7, 7);
+
+  const regularity = last7cal.length;
+  document.getElementById('stat-regularity').textContent = `${regularity}/7 jours renseignés`;
+
+  const avgArr = (arr, k) => { const v = arr.map(e=>e[k]).filter(v=>typeof v==='number'); return v.length ? v.reduce((a,b)=>a+b)/v.length : null; };
+  const trend = (cur, prev) => {
+    if(cur===null||prev===null) return '';
+    const d = cur - prev;
+    if(d > 0.3) return '<span style="color:var(--green)">↑</span>';
+    if(d < -0.3) return '<span style="color:var(--red)">↓</span>';
+    return '<span style="color:var(--text-faint)">=</span>';
+  };
+  const setStatEl = (elId, trendId, cur, prev, formatter) => {
+    document.getElementById(elId).textContent = cur !== null ? formatter(cur) : '—';
+    document.getElementById(trendId).innerHTML = trend(cur, prev);
+  };
+
+  setStatEl('stat-mood',     'trend-mood',     avgArr(last7cal,'mood_evening'),  avgArr(prev7cal,'mood_evening'),  v=>v.toFixed(1));
+  setStatEl('stat-anxiety',  'trend-anxiety',  avgArr(last7cal,'anxiety'),       avgArr(prev7cal,'anxiety'),       v=>v.toFixed(1));
+  setStatEl('stat-sleep',    'trend-sleep',    avgArr(last7cal,'sleep_quality'), avgArr(prev7cal,'sleep_quality'), v=>v.toFixed(1));
+  setStatEl('stat-energy',   'trend-energy',   avgArr(last7cal,'energy'),        avgArr(prev7cal,'energy'),        v=>v.toFixed(1));
+  setStatEl('stat-fog',      'trend-fog',      avgArr(last7cal,'brain_fog'),     avgArr(prev7cal,'brain_fog'),     v=>v.toFixed(1));
+  setStatEl('stat-blunting', 'trend-blunting', avgArr(last7cal,'blunting'),      avgArr(prev7cal,'blunting'),      v=>(v>=0?'+':'')+v.toFixed(1));
+
+  // Cartes sessions
+  const today = todayStr();
+  const todayEntry = state.data.entries.find(e => e.date === today);
+  const morningDone = !!(todayEntry && todayEntry.morning_done);
+  const eveningDone = !!(todayEntry && todayEntry.evening_done);
+  const morningBtn = document.getElementById('card-entry-morning');
+  const eveningBtn = document.getElementById('card-entry-evening');
+
+  document.getElementById('morning-card-title').textContent = morningDone ? 'Réveil — ✅' : '☀️ Session réveil';
+  document.getElementById('morning-card-desc').textContent  = morningDone ? 'Modifier' : 'Sommeil · humeur · énergie';
+  morningBtn.classList.toggle('primary', !morningDone);
+  morningBtn.classList.toggle('session-done', morningDone);
+
+  document.getElementById('evening-card-title').textContent = eveningDone ? 'Coucher — ✅' : '🌙 Session coucher';
+  document.getElementById('evening-card-desc').textContent  = eveningDone ? 'Modifier' : 'Doses · humeur · effets';
+  eveningBtn.classList.toggle('primary', morningDone && !eveningDone);
+  eveningBtn.classList.toggle('session-done', eveningDone);
+
+  // Badge FAB quicknote
+  const qnCount = (state.data.quicknotes || []).length;
+  const fab = document.getElementById('fab-quicknote');
+  fab.textContent = qnCount > 0 ? qnCount : '+';
+  fab.title = qnCount > 0 ? `${qnCount} note${qnCount > 1 ? 's' : ''} du jour` : 'Note rapide';
+
+  renderAlerts();
+}
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+/* ============================================================
+   ENTRY — flow guidé question par question
+   ============================================================ */
+
+const MORNING_STEPS = [
+  'date', 'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'mood_morning', 'weight', 'note_morning', 'recap'
+];
+const EVENING_STEPS = [
+  'date', 'meds', 'cafes_alcohol', 'rgo', 'social_media', 'side_effects', 'positive_feelings', 'energy', 'brain_fog', 'anxiety', 'activities', 'physical_activity', 'suicidal', 'blunting', 'notable_event', 'mood_evening', 'note', 'recap'
+];
+
+function startEntry(editId, session){
+  const today = todayStr();
+  if(editId){
+    const entry = state.data.entries.find(e=>e.id === editId);
+    if(!entry) return;
+    state.entryDraft = JSON.parse(JSON.stringify(entry));
+    migrateEntry(state.entryDraft);
+    state.editingEntryId = editId;
+    state.entrySession = session || autoDetectSession(state.entryDraft);
+  } else {
+    const existing = state.data.entries.find(e=>e.date === today);
+    if(existing){
+      state.entryDraft = JSON.parse(JSON.stringify(existing));
+      migrateEntry(state.entryDraft);
+      state.editingEntryId = existing.id;
+    } else {
+      state.entryDraft = blankEntry(today);
+      state.editingEntryId = null;
+    }
+    state.entrySession = session || autoDetectSession(state.entryDraft);
+  }
+  let steps = state.entrySession === 'morning' ? MORNING_STEPS : [...EVENING_STEPS];
+  if(state.entrySession === 'evening' && state.data.quicknotes && state.data.quicknotes.length > 0){
+    steps = ['quicknotes_review', ...steps];
+  }
+  state.entrySteps = steps;
+  state.entryStep = 0;
+  showView('entry');
+  renderEntryStep();
+}
+
+function blankEntry(date){
+  return {
+    id: 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+    date: date,
+    created_at: new Date().toISOString(),
+    morning_done: false,
+    evening_done: false,
+    // Session matin
+    sleep_bedtime: '',
+    sleep_waketime: '',
+    sleep_duration_min: 0,
+    sleep_quality: 5,
+    wake_count: 0,
+    dream_quality: null,
+    nightmare: false,
+    nightmare_note: '',
+    mood_morning: 5,
+    brain_fog_morning: 0,
+    energy_morning: 5,
+    note_morning: '',
+    weight_kg: null,
+    // Session soir
+    paroxetine_mg: suggestedParoxetine(date),
+    mianserine_mg: state.data.settings.defaults.mianserine_mg,
+    oxazepam_mg: 0,
+    energy: 5,
+    anxiety: 0,
+    brain_fog: 0,
+    blunting: 0,
+    mood_evening: 5,
+    suicidal: 'aucune',
+    suicidal_note: '',
+    rgo: false,
+    rgo_intensity: 0,
+    side_effects: [],
+    side_effects_other: '',
+    positive_feelings: [],
+    cafes_count: 0,
+    alcohol_units: 0,
+    gaviscon_doses: 0,
+    pantoprazole_doses: 0,
+    ltyrosine_mg: 1000,
+    activities: [],
+    physical_activity: 0,
+    social_media_min: 0,
+    activities_other: '',
+    activities_note: '',
+    notable_event: false,
+    notable_event_text: '',
+    free_note: ''
+  };
+}
+
+function migrateEntry(e){
+  const blank = blankEntry(e.date || todayStr());
+  for(const [k, v] of Object.entries(blank)){
+    if(!(k in e)) e[k] = v;
+  }
+  if(e.ltyrosine_mg===undefined) e.ltyrosine_mg=1000;
+}
+
+function autoDetectSession(entry){
+  if(entry && entry.morning_done && !entry.evening_done) return 'evening';
+  if(entry && entry.evening_done && !entry.morning_done) return 'morning';
+  return new Date().getHours() >= 20 ? 'evening' : 'morning';
+}
+
+function suggestedParoxetine(date){
+  const tapers = state.data.settings.paroxetine_taper || [];
+  for(const t of tapers){
+    const fromOk = !t.from || date >= t.from;
+    const toOk = !t.to || date <= t.to;
+    if(fromOk && toOk){
+      if(t.mode === 'every_other_day'){
+        // Compter les jours depuis le début de cette tranche, alterner
+        const start = new Date(t.from);
+        const cur = new Date(date);
+        const diffDays = Math.floor((cur - start) / 86400000);
+        return diffDays % 2 === 0 ? t.mg : 0;
+      }
+      return t.mg;
+    }
+  }
+  return 0;
+}
+
+function renderEntryStep(){
+  const step = state.entrySteps[state.entryStep];
+  const total = state.entrySteps.length;
+  const c = document.getElementById('entry-step-container');
+  c.innerHTML = '';
+  c.appendChild(buildStep(step));
+  if(state.singleStepEdit){
+    document.getElementById('entry-progress-bar').style.width = '100%';
+    document.getElementById('entry-back').disabled = false;
+    document.getElementById('entry-back').style.visibility = 'visible';
+    document.getElementById('entry-back').textContent = 'Annuler';
+    document.getElementById('entry-next').textContent = 'Enregistrer';
+  } else {
+    document.getElementById('entry-progress-bar').style.width = ((state.entryStep / (total-1)) * 100) + '%';
+    document.getElementById('entry-back').disabled = state.entryStep === 0;
+    document.getElementById('entry-back').style.visibility = state.entryStep === 0 ? 'hidden' : 'visible';
+    document.getElementById('entry-back').textContent = 'Retour';
+    document.getElementById('entry-next').textContent = (state.entryStep === total-1) ? 'Enregistrer' : 'Suivant';
+    if(!_skipPush) history.pushState({view:'entry', step:state.entryStep}, '');
+  }
+}
+
+function stepWrap(num, title, help){
+  const div = document.createElement('div');
+  div.className = 'entry-step';
+  const sessionLabel = state.entrySession === 'morning' ? 'Matin' : 'Soir';
+  const counter = state.singleStepEdit ? '' : `<div class="step-num">${sessionLabel} — ${num+1} / ${state.entrySteps.length}</div>`;
+  div.innerHTML = `${counter}<h2>${title}</h2><p class="step-help">${help||''}</p>`;
+  return div;
+}
+
+function buildStep(step){
+  const idx = state.entrySteps.indexOf(step);
+  const d = state.entryDraft;
+
+  if(step === 'date'){
+    const w = stepWrap(idx, "Quel jour ?", "Tu peux corriger la date si tu remplis pour un jour précédent.");
+    const input = document.createElement('input');
+    input.type = 'date';
+    input.value = d.date;
+    input.max = todayStr();
+    input.addEventListener('change', e => { d.date = e.target.value; });
+    w.appendChild(input);
+    return w;
+  }
+
+  if(step === 'sleep_schedule'){
+    const w = stepWrap(idx, "Horaires de sommeil", "Heure de coucher hier soir et heure de lever ce matin.");
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px';
+    grid.innerHTML = `
+      <div>
+        <label style="font-size:12px;color:var(--text-faint);display:block;margin-bottom:6px">Coucher (veille)</label>
+        <input type="time" id="sl-bedtime" value="${d.sleep_bedtime||''}" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-faint);display:block;margin-bottom:6px">Lever (ce matin)</label>
+        <input type="time" id="sl-waketime" value="${d.sleep_waketime||''}" style="width:100%">
+      </div>`;
+    w.appendChild(grid);
+    const durDisplay = document.createElement('div');
+    durDisplay.id = 'sleep-dur-display';
+    durDisplay.style.cssText = 'text-align:center;font-size:18px;font-weight:600;color:var(--teal);min-height:28px';
+    w.appendChild(durDisplay);
+    function calcDuration(){
+      const bed = document.getElementById('sl-bedtime')?.value;
+      const wake = document.getElementById('sl-waketime')?.value;
+      d.sleep_bedtime = bed || '';
+      d.sleep_waketime = wake || '';
+      if(bed && wake){
+        let [bh,bm] = bed.split(':').map(Number);
+        let [wh,wm] = wake.split(':').map(Number);
+        let mins = (wh*60+wm) - (bh*60+bm);
+        if(mins <= 0) mins += 1440;
+        d.sleep_duration_min = mins;
+        const h = Math.floor(mins/60);
+        const m = mins % 60;
+        document.getElementById('sleep-dur-display').textContent = `${h}h${m>0?String(m).padStart(2,'0'):''}`;
+      } else {
+        d.sleep_duration_min = 0;
+        document.getElementById('sleep-dur-display').textContent = '';
+      }
+    }
+    setTimeout(()=>{
+      document.getElementById('sl-bedtime').addEventListener('input', calcDuration);
+      document.getElementById('sl-waketime').addEventListener('input', calcDuration);
+      calcDuration();
+    },0);
+    return w;
+  }
+
+  if(['sleep_quality','mood_morning','mood_evening','energy','anxiety','brain_fog'].includes(step)){
+    const titles = {
+      sleep_quality: ["Comment était ton sommeil ?", "0 = catastrophique, 10 = parfait."],
+      mood_morning: ["Humeur au réveil ?", "0 = très basse, 10 = très haute."],
+      energy: ["Énergie globale aujourd'hui ?", "Ressenti global de la journée. 0 = épuisé, 10 = pleinement disponible."],
+      anxiety: ["Anxiété aujourd'hui ?", "Bilan de la journée. 0 = aucune, 10 = très intense."],
+      brain_fog: ["Brouillard mental dans la journée ?", "Ressenti moyen de la journée. 0 = esprit clair, 10 = très embrumé."],
+      mood_evening: ["Humeur globale de la journée ?", "0 = très mauvaise journée, 10 = très bonne. Pondère tout ce qui s'est passé."]
+    };
+    const w = stepWrap(idx, titles[step][0], titles[step][1]);
+    const sw = document.createElement('div');
+    sw.className = 'slider-wrap';
+    sw.innerHTML = `
+      <div class="slider-value" id="sv-${step}">${d[step]}</div>
+      <input type="range" min="0" max="10" step="1" value="${d[step]}" id="sl-${step}">
+      <div class="slider-labels"><span>0</span><span>5</span><span>10</span></div>`;
+    w.appendChild(sw);
+    setTimeout(()=>{
+      const sl = document.getElementById('sl-'+step);
+      const sv = document.getElementById('sv-'+step);
+      sl.addEventListener('input', e=>{
+        d[step] = parseInt(e.target.value);
+        sv.textContent = d[step];
+      });
+    },0);
+    return w;
+  }
+
+  if(step === 'blunting'){
+    const w = stepWrap(idx, "Sensibilité émotionnelle ?", "−5 = absent (anesthésié), 0 = neutre, +5 = hypersensible.");
+    const sw = document.createElement('div');
+    sw.className = 'slider-wrap';
+    const val = d.blunting;
+    const dispVal = val > 0 ? '+'+val : String(val);
+    sw.innerHTML = `
+      <div class="slider-value" id="sv-blunting">${dispVal}</div>
+      <input type="range" min="-5" max="5" step="1" value="${val}" id="sl-blunting">
+      <div class="slider-labels"><span>−5</span><span>0</span><span>+5</span></div>`;
+    w.appendChild(sw);
+    setTimeout(()=>{
+      const sl = document.getElementById('sl-blunting');
+      const sv = document.getElementById('sv-blunting');
+      sl.addEventListener('input', e=>{
+        d.blunting = parseInt(e.target.value);
+        sv.textContent = d.blunting > 0 ? '+'+d.blunting : String(d.blunting);
+      });
+    },0);
+    return w;
+  }
+
+  if(step === 'wake_count'){
+    const w = stepWrap(idx, "Combien de réveils nocturnes ?", "Y compris les très brefs si tu t'en souviens.");
+    const ni = document.createElement('div');
+    ni.className = 'num-input';
+    ni.innerHTML = `
+      <button id="wc-minus">−</button>
+      <input type="number" id="wc-val" value="${d.wake_count}" min="0" max="20">
+      <button id="wc-plus">+</button>`;
+    w.appendChild(ni);
+    setTimeout(()=>{
+      const inp = document.getElementById('wc-val');
+      document.getElementById('wc-minus').onclick = ()=>{ if(d.wake_count>0){d.wake_count--; inp.value = d.wake_count;} };
+      document.getElementById('wc-plus').onclick = ()=>{ d.wake_count++; inp.value = d.wake_count; };
+      inp.oninput = e=>{ d.wake_count = Math.max(0, parseInt(e.target.value)||0); };
+    },0);
+    return w;
+  }
+
+  if(step === 'dreams'){
+    const w = stepWrap(idx, "Qualité des rêves cette nuit ?", "Souvenir et nature des rêves au réveil.");
+    const dreamOpts = [
+      {v:0, t:"0 — Aucun souvenir",    s:"Nuit noire, rien de mémorisé."},
+      {v:1, t:"1 — Vagues souvenirs",  s:"Quelques fragments, impressions floues."},
+      {v:2, t:"2 — Rêves normaux",     s:"Rêves cohérents dont tu te souviens."},
+      {v:3, t:"3 — Rêves complexes",   s:"Scénarios élaborés, vifs, chargés émotionnellement."}
+    ];
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    dreamOpts.forEach(o=>{
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (d.dream_quality === o.v ? ' selected' : '');
+      card.innerHTML = `<div class="indicator"></div><div class="text"><strong>${o.t}</strong><small>${o.s}</small></div>`;
+      card.onclick = ()=>{
+        d.dream_quality = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c=>c.classList.remove('selected'));
+        card.classList.add('selected');
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    // Cauchemars — toggle indépendant + note conditionnelle
+    const nmWrap = document.createElement('div');
+    nmWrap.style.marginTop = '18px';
+    nmWrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-dim)">Cauchemar(s) cette nuit ?</span>
+        <button id="nm-toggle" class="btn" style="padding:6px 16px;font-size:13px;background:${d.nightmare?'var(--teal)':'var(--bg-3)'};color:${d.nightmare?'#fff':'var(--text-dim)'};border:1px solid var(--border)">
+          ${d.nightmare ? 'Oui' : 'Non'}
+        </button>
+      </div>
+      <div id="nm-note-wrap" style="display:${d.nightmare?'block':'none'}">
+        <textarea id="nm-note" placeholder="Décris brièvement le cauchemar, les émotions ressenties..." style="width:100%;box-sizing:border-box">${escapeHtml(d.nightmare_note||'')}</textarea>
+      </div>`;
+    w.appendChild(nmWrap);
+    setTimeout(()=>{
+      document.getElementById('nm-toggle').onclick = function(){
+        d.nightmare = !d.nightmare;
+        this.textContent = d.nightmare ? 'Oui' : 'Non';
+        this.style.background = d.nightmare ? 'var(--teal)' : 'var(--bg-3)';
+        this.style.color = d.nightmare ? '#fff' : 'var(--text-dim)';
+        document.getElementById('nm-note-wrap').style.display = d.nightmare ? 'block' : 'none';
+      };
+      const noteEl = document.getElementById('nm-note');
+      if(noteEl) noteEl.oninput = e => { d.nightmare_note = e.target.value; };
+    },0);
+    return w;
+  }
+
+  if(step === 'suicidal'){
+    const w = stepWrap(idx, "Idéations suicidaires aujourd'hui ?", "Important pour le suivi. Personne ne lit cette donnée à part toi.");
+    const opts = [
+      {v:'aucune', t:"Aucune", s:"Pas de pensée de ce type."},
+      {v:'fugaces', t:"Fugaces", s:"Pensées brèves, qui passent vite."},
+      {v:'presentes', t:"Présentes", s:"Pensées qui reviennent ou qui s'installent."},
+      {v:'intenses', t:"Intenses", s:"Pensées envahissantes ou avec un plan."}
+    ];
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    opts.forEach(o=>{
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (d.suicidal === o.v ? ' selected' : '') + (o.v === 'intenses' ? ' danger' : '');
+      card.innerHTML = `<div class="indicator"></div><div class="text"><strong>${o.t}</strong><small>${o.s}</small></div>`;
+      card.onclick = ()=>{
+        d.suicidal = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c=>c.classList.remove('selected'));
+        card.classList.add('selected');
+        document.getElementById('suicidal-note-wrap').style.display = (o.v !== 'aucune') ? 'block' : 'none';
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    const noteWrap = document.createElement('div');
+    noteWrap.id = 'suicidal-note-wrap';
+    noteWrap.style.marginTop = '16px';
+    noteWrap.style.display = (d.suicidal !== 'aucune') ? 'block' : 'none';
+    noteWrap.innerHTML = `<textarea placeholder="Contexte, déclencheur, durée... (optionnel)" id="suicidal-note">${d.suicidal_note||''}</textarea>`;
+    w.appendChild(noteWrap);
+    setTimeout(()=>{
+      document.getElementById('suicidal-note').oninput = e=>{ d.suicidal_note = e.target.value; };
+    },0);
+    if(d.suicidal !== 'aucune'){
+      const helpBox = document.createElement('div');
+      helpBox.style.cssText = 'margin-top:18px;padding:12px 14px;background:rgba(231,76,60,.08);border-left:3px solid var(--red);border-radius:var(--radius-sm);font-size:13px;color:var(--text-dim)';
+      helpBox.innerHTML = "Si tu as besoin de parler à quelqu'un maintenant : <strong>3114</strong> (gratuit, 24h/24, anonyme).";
+      w.appendChild(helpBox);
+    }
+    return w;
+  }
+
+  if(step === 'meds'){
+    const w = stepWrap(idx, "Doses prises aujourd'hui", "Pré-rempli selon ton schéma. Modifiable.");
+    const sug = suggestedParoxetine(d.date);
+    const grid = document.createElement('div');
+    grid.className = 'meds-grid';
+    grid.innerHTML = `
+      <div class="med-row">
+        <div class="name"><span>Paroxétine</span>${sug !== d.paroxetine_mg ? '' : '<span class="suggested">selon schéma</span>'}</div>
+        <div class="desc">Suggestion du jour : ${sug} mg</div>
+        <div class="num-input">
+          <button onclick="medAdjust('paroxetine_mg',-5)">−</button>
+          <input type="number" id="m-parox" value="${d.paroxetine_mg}" min="0" step="2.5">
+          <span class="unit">mg</span>
+          <button onclick="medAdjust('paroxetine_mg',5)">+</button>
+        </div>
+      </div>
+      <div class="med-row">
+        <div class="name"><span>Miansérine</span></div>
+        <div class="desc">Au coucher</div>
+        <div class="num-input">
+          <button onclick="medAdjust('mianserine_mg',-10)">−</button>
+          <input type="number" id="m-mian" value="${d.mianserine_mg}" min="0" step="10">
+          <span class="unit">mg</span>
+          <button onclick="medAdjust('mianserine_mg',10)">+</button>
+        </div>
+      </div>
+      <div class="med-row">
+        <div class="name"><span>Oxazépam</span></div>
+        <div class="desc">Total de la journée (5 mg = ½ cp, 10 mg = 1 cp)</div>
+        <div class="num-input">
+          <button onclick="medAdjust('oxazepam_mg',-5)">−</button>
+          <input type="number" id="m-oxa" value="${d.oxazepam_mg}" min="0" step="5">
+          <span class="unit">mg</span>
+          <button onclick="medAdjust('oxazepam_mg',5)">+</button>
+        </div>
+      </div>
+    `;
+    w.appendChild(grid);
+    setTimeout(()=>{
+      document.getElementById('m-parox').oninput = e=>{ d.paroxetine_mg = parseFloat(e.target.value)||0; };
+      document.getElementById('m-mian').oninput = e=>{ d.mianserine_mg = parseFloat(e.target.value)||0; };
+      document.getElementById('m-oxa').oninput = e=>{ d.oxazepam_mg = parseFloat(e.target.value)||0; };
+    },0);
+    return w;
+  }
+
+  if(step === 'rgo'){
+    const w = stepWrap(idx, "Reflux gastrique aujourd'hui ?", "");
+    const opts = [
+      {v:false, t:"Non", s:"Pas de reflux notable."},
+      {v:true, t:"Oui", s:"Reflux présent."}
+    ];
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    opts.forEach(o=>{
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (d.rgo === o.v ? ' selected' : '');
+      card.innerHTML = `<div class="indicator"></div><div class="text"><strong>${o.t}</strong><small>${o.s}</small></div>`;
+      card.onclick = ()=>{
+        d.rgo = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c=>c.classList.remove('selected'));
+        card.classList.add('selected');
+        document.getElementById('rgo-int-wrap').style.display = o.v ? 'block' : 'none';
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    const intWrap = document.createElement('div');
+    intWrap.id = 'rgo-int-wrap';
+    intWrap.style.marginTop = '20px';
+    intWrap.style.display = d.rgo ? 'block' : 'none';
+    intWrap.innerHTML = `
+      <div class="step-help" style="margin-bottom:8px">Intensité (0-10)</div>
+      <div class="slider-wrap">
+        <div class="slider-value" id="sv-rgo">${d.rgo_intensity}</div>
+        <input type="range" min="0" max="10" step="1" value="${d.rgo_intensity}" id="sl-rgo">
+      </div>`;
+    w.appendChild(intWrap);
+    setTimeout(()=>{
+      const sl = document.getElementById('sl-rgo');
+      if(sl){
+        sl.oninput = e=>{
+          d.rgo_intensity = parseInt(e.target.value);
+          document.getElementById('sv-rgo').textContent = d.rgo_intensity;
+        };
+      }
+    },0);
+    return w;
+  }
+
+  if(step === 'side_effects'){
+    const w = stepWrap(idx, "Ressentis négatifs de la journée", "Coche tous ceux qui s'appliquent.");
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    Object.entries(SIDE_EFFECT_LABELS).forEach(([k,v])=>{
+      const c = document.createElement('div');
+      c.className = 'chip' + (d.side_effects.includes(k) ? ' selected' : '');
+      c.textContent = v;
+      c.onclick = ()=>{
+        const i = d.side_effects.indexOf(k);
+        if(i >= 0) d.side_effects.splice(i, 1);
+        else d.side_effects.push(k);
+        c.classList.toggle('selected');
+        document.getElementById('se-other-wrap').style.display = d.side_effects.includes('autre') ? 'block' : 'none';
+      };
+      chips.appendChild(c);
+    });
+    w.appendChild(chips);
+    const otherWrap = document.createElement('div');
+    otherWrap.id = 'se-other-wrap';
+    otherWrap.style.marginTop = '16px';
+    otherWrap.style.display = d.side_effects.includes('autre') ? 'block' : 'none';
+    otherWrap.innerHTML = `<input type="text" placeholder="Précise..." id="se-other" value="${d.side_effects_other||''}">`;
+    w.appendChild(otherWrap);
+    setTimeout(()=>{
+      const inp = document.getElementById('se-other');
+      if(inp) inp.oninput = e=>{ d.side_effects_other = e.target.value; };
+    },0);
+    return w;
+  }
+
+  if(step === 'positive_feelings'){
+    const w = stepWrap(idx, "Ressentis positifs de la journée ✨", "Coche tout ce qui a été présent, même brièvement.");
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    Object.entries(POSITIVE_FEELING_LABELS).forEach(([k,v])=>{
+      const c = document.createElement('div');
+      c.className = 'chip' + (d.positive_feelings.includes(k) ? ' selected' : '');
+      c.textContent = v;
+      c.onclick = ()=>{
+        const i = d.positive_feelings.indexOf(k);
+        if(i >= 0) d.positive_feelings.splice(i, 1);
+        else d.positive_feelings.push(k);
+        c.classList.toggle('selected');
+      };
+      chips.appendChild(c);
+    });
+    w.appendChild(chips);
+    return w;
+  }
+
+  if(step === 'quicknotes_review'){
+    const notes = state.data.quicknotes || [];
+    const w = stepWrap(idx, "Notes du jour", "Ces notes ont été ajoutées en cours de journée. Elles seront effacées après validation de cette session.");
+    if(notes.length === 0){
+      const p = document.createElement('p');
+      p.style.color = 'var(--text-faint)';
+      p.style.fontSize = '14px';
+      p.textContent = 'Aucune note.';
+      w.appendChild(p);
+    } else {
+      const list = document.createElement('div');
+      notes.forEach(n => {
+        const item = document.createElement('div');
+        item.className = 'qn-note-item';
+        item.innerHTML = `<div class="qn-note-time">${n.time}</div><div class="qn-note-text">${escapeHtml(n.text)}</div>`;
+        list.appendChild(item);
+      });
+      w.appendChild(list);
+    }
+    return w;
+  }
+
+  if(step === 'activities'){
+    const w = stepWrap(idx, "Activités du jour", "Coche ce que tu as fait aujourd'hui. Optionnel.");
+    ACTIVITY_CATEGORIES.forEach(cat => {
+      const label = document.createElement('div');
+      label.className = 'activities-cat-label';
+      label.textContent = cat.label;
+      w.appendChild(label);
+      const chips = document.createElement('div');
+      chips.className = 'chips';
+      cat.items.forEach(item => {
+        const c = document.createElement('div');
+        c.className = 'chip' + (d.activities.includes(item) ? ' selected' : '');
+        c.textContent = item;
+        c.onclick = ()=>{
+          const i = d.activities.indexOf(item);
+          if(i >= 0) d.activities.splice(i, 1);
+          else d.activities.push(item);
+          c.classList.toggle('selected');
+        };
+        chips.appendChild(c);
+      });
+      w.appendChild(chips);
+    });
+    // Champ "Autre" avec parsing virgule
+    const otherLabel = document.createElement('div');
+    otherLabel.className = 'activities-cat-label';
+    otherLabel.textContent = 'Autre';
+    w.appendChild(otherLabel);
+    const otherInput = document.createElement('input');
+    otherInput.type = 'text';
+    otherInput.placeholder = 'Ex : Marche, Parapente, Escalade';
+    otherInput.value = d.activities_other || '';
+    w.appendChild(otherInput);
+    // Tags de prévisualisation
+    const otherPreview = document.createElement('div');
+    otherPreview.className = 'chips';
+    otherPreview.style.marginTop = '8px';
+    w.appendChild(otherPreview);
+    const syncOtherItems = (() => {
+      let prev = (d.activities_other || '').split(',').map(s=>s.trim()).filter(Boolean);
+      // Initialisation : s'assurer que les items déjà dans activities_other sont dans d.activities
+      prev.forEach(item => { if(!d.activities.includes(item)) d.activities.push(item); });
+      const render = (items) => {
+        otherPreview.innerHTML = '';
+        items.forEach(item => {
+          const chip = document.createElement('div');
+          chip.className = 'chip selected';
+          chip.style.cssText = 'pointer-events:none;opacity:.85';
+          chip.textContent = item;
+          otherPreview.appendChild(chip);
+        });
+      };
+      render(prev);
+      return (raw) => {
+        d.activities_other = raw;
+        // Retirer les anciens items "autre" de d.activities
+        prev.forEach(item => { const i = d.activities.indexOf(item); if(i>=0) d.activities.splice(i,1); });
+        // Parser les nouveaux items
+        prev = raw.split(',').map(s=>s.trim()).filter(Boolean);
+        prev.forEach(item => { if(!d.activities.includes(item)) d.activities.push(item); });
+        render(prev);
+      };
+    })();
+    otherInput.oninput = e => syncOtherItems(e.target.value);
+    return w;
+  }
+
+  if(step === 'weight'){
+    const w = stepWrap(idx, "Ton poids ce matin ?", "Optionnel. Renseigne si tu te pèses, laisse vide sinon.");
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;max-width:200px';
+    row.innerHTML = `<input type="number" id="inp-weight" min="30" max="250" step="0.1" placeholder="—" value="${d.weight_kg ?? ''}" style="flex:1;text-align:center;font-size:22px;font-weight:600;color:#111"> <span style="font-size:14px;color:var(--text-faint)">kg</span>`;
+    w.appendChild(row);
+    const skip = document.createElement('button');
+    skip.className = 'btn btn-secondary';
+    skip.style.cssText = 'margin-top:16px;width:100%';
+    skip.textContent = 'Passer';
+    skip.onclick = ()=>{ d.weight_kg = null; document.getElementById('entry-next').click(); };
+    w.appendChild(skip);
+    setTimeout(()=>{
+      document.getElementById('inp-weight').oninput = e=>{
+        const v = parseFloat(e.target.value);
+        d.weight_kg = isNaN(v) ? null : v;
+      };
+    },0);
+    return w;
+  }
+
+  if(step === 'cafes_alcohol'){
+    const w = stepWrap(idx, "Cafés, alcool & médicaments digestifs", "");
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:20px';
+    grid.innerHTML = `
+      <div>
+        <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">☕ Cafés</div>
+        <div class="num-input">
+          <button id="ca-minus-c">−</button>
+          <input type="number" id="ca-cafe" value="${d.cafes_count||0}" min="0" max="20">
+          <button id="ca-plus-c">+</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">🍷 Verres d'alcool</div>
+        <div class="num-input">
+          <button id="ca-minus-a">−</button>
+          <input type="number" id="ca-alco" value="${d.alcohol_units||0}" min="0" max="30" step="0.5">
+          <button id="ca-plus-a">+</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">🧯 Gaviscon</div>
+        <div class="num-input">
+          <button id="ca-minus-g">−</button>
+          <input type="number" id="ca-gav" value="${d.gaviscon_doses||0}" min="0" max="10">
+          <button id="ca-plus-g">+</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">💊 Pantoprazole (20mg)</div>
+        <div class="num-input">
+          <button id="ca-minus-p">−</button>
+          <input type="number" id="ca-panto" value="${d.pantoprazole_doses||0}" min="0" max="4">
+          <button id="ca-plus-p">+</button>
+        </div>
+      </div>
+      <div style="grid-column:1/-1">
+        <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">L-Tyrosine</div>
+        <div style="display:flex;gap:8px;justify-content:center">
+          ${[0,500,1000].map(v=>'<button id="ca-ltyr-'+v+'" class="btn'+(( (d.ltyrosine_mg??1000)===v)?' btn-primary':' btn-secondary')+'" style="min-width:70px">'+v+' mg</button>').join('')}
+        </div>
+      </div>`;
+    w.appendChild(grid);
+    setTimeout(()=>{
+      const ci = document.getElementById('ca-cafe');
+      const ai = document.getElementById('ca-alco');
+      const gi = document.getElementById('ca-gav');
+      const pi = document.getElementById('ca-panto');
+      document.getElementById('ca-minus-c').onclick = ()=>{ if(d.cafes_count>0){d.cafes_count--; ci.value=d.cafes_count;} };
+      document.getElementById('ca-plus-c').onclick  = ()=>{ d.cafes_count++; ci.value=d.cafes_count; };
+      ci.oninput = e=>{ d.cafes_count = Math.max(0,parseInt(e.target.value)||0); };
+      document.getElementById('ca-minus-a').onclick = ()=>{ if(d.alcohol_units>0){d.alcohol_units=Math.max(0,+(d.alcohol_units-.5).toFixed(1)); ai.value=d.alcohol_units;} };
+      document.getElementById('ca-plus-a').onclick  = ()=>{ d.alcohol_units=+(d.alcohol_units+.5).toFixed(1); ai.value=d.alcohol_units; };
+      ai.oninput = e=>{ d.alcohol_units = Math.max(0,parseFloat(e.target.value)||0); };
+      document.getElementById('ca-minus-g').onclick = ()=>{ if(d.gaviscon_doses>0){d.gaviscon_doses--; gi.value=d.gaviscon_doses;} };
+      document.getElementById('ca-plus-g').onclick  = ()=>{ d.gaviscon_doses++; gi.value=d.gaviscon_doses; };
+      gi.oninput = e=>{ d.gaviscon_doses = Math.max(0,parseInt(e.target.value)||0); };
+      document.getElementById('ca-minus-p').onclick = ()=>{ if(d.pantoprazole_doses>0){d.pantoprazole_doses--; pi.value=d.pantoprazole_doses;} };
+      document.getElementById('ca-plus-p').onclick  = ()=>{ d.pantoprazole_doses++; pi.value=d.pantoprazole_doses; };
+      pi.oninput = e=>{ d.pantoprazole_doses = Math.max(0,parseInt(e.target.value)||0); };
+      [0,500,1000].forEach(v=>{
+        document.getElementById('ca-ltyr-'+v).onclick = ()=>{
+          d.ltyrosine_mg = v;
+          [0,500,1000].forEach(vv=>{
+            const b = document.getElementById('ca-ltyr-'+vv);
+            b.className = 'btn '+(vv===v ? 'btn-primary' : 'btn-secondary');
+          });
+        };
+      });
+    },0);
+    return w;
+  }
+
+  if(step === 'note_morning'){
+    const w = stepWrap(idx, "Note libre — matin", "Ressenti au réveil, qualité des rêves, contexte... Optionnel.");
+    const ta = document.createElement('textarea');
+    ta.placeholder = "Rêves, ressenti au réveil, contexte...";
+    ta.value = d.note_morning || '';
+    ta.oninput = e=>{ d.note_morning = e.target.value; };
+    w.appendChild(ta);
+    return w;
+  }
+
+  if(step === 'physical_activity'){
+    const w = stepWrap(idx, "Activité physique du jour ?", "0 = sédentarité totale · 3 = cardio, tu as transpiré.");
+    const opts = [
+      {v:0, t:"0 — Sédentaire",    s:"Aucun mouvement particulier."},
+      {v:1, t:"1 — Légèrement actif", s:"Marche, déplacement, effort léger."},
+      {v:2, t:"2 — Actif",          s:"Effort modéré, sans transpiration franche."},
+      {v:3, t:"3 — Cardio",         s:"Activité sportive intense, tu as transpiré."}
+    ];
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    opts.forEach(o=>{
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (d.physical_activity === o.v ? ' selected' : '');
+      card.innerHTML = `<div class="indicator"></div><div class="text"><strong>${o.t}</strong><small>${o.s}</small></div>`;
+      card.onclick = ()=>{
+        d.physical_activity = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c=>c.classList.remove('selected'));
+        card.classList.add('selected');
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    return w;
+  }
+
+  if(step === 'social_media'){
+    const w = stepWrap(idx, "Temps sur les réseaux sociaux aujourd'hui ?", "Tous réseaux confondus.");
+    const smOpts = [
+      {v:0,   t:"Aucun",      s:"Pas de réseaux aujourd'hui."},
+      {v:20,  t:"< 30 min",   s:"Consultation rapide."},
+      {v:60,  t:"~ 1 heure",  s:"Utilisation modérée."},
+      {v:120, t:"~ 2 heures", s:"Utilisation significative."},
+      {v:180, t:"~ 3 heures", s:"Utilisation importante."},
+      {v:240, t:"3 heures +", s:"Utilisation très élevée."}
+    ];
+    const cur = d.social_media_min || 0;
+    const closest = smOpts.reduce((best, o) => Math.abs(o.v - cur) < Math.abs(best.v - cur) ? o : best, smOpts[0]);
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    smOpts.forEach(o => {
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (o.v === closest.v ? ' selected' : '');
+      card.innerHTML = '<div class="indicator"></div><div class="text"><strong>'+o.t+'</strong><small>'+o.s+'</small></div>';
+      card.onclick = () => {
+        d.social_media_min = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    return w;
+  }
+
+  if(step === 'notable_event'){
+    const w = stepWrap(idx, "Événement marquant ?", "Quelque chose d'inhabituel aujourd'hui, qui pourrait influencer les données.");
+    const opts = [
+      {v:false, t:"Non", s:"Journée ordinaire."},
+      {v:true,  t:"Oui", s:"Un événement sort de l'ordinaire."}
+    ];
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    opts.forEach(o=>{
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (d.notable_event === o.v ? ' selected' : '');
+      card.innerHTML = `<div class="indicator"></div><div class="text"><strong>${o.t}</strong><small>${o.s}</small></div>`;
+      card.onclick = ()=>{
+        d.notable_event = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c=>c.classList.remove('selected'));
+        card.classList.add('selected');
+        document.getElementById('notable-text-wrap').style.display = o.v ? 'block' : 'none';
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    const textWrap = document.createElement('div');
+    textWrap.id = 'notable-text-wrap';
+    textWrap.style.marginTop = '16px';
+    textWrap.style.display = d.notable_event ? 'block' : 'none';
+    textWrap.innerHTML = `<input type="text" placeholder="Décris brièvement..." id="notable-text" value="${escapeHtml(d.notable_event_text||'')}">`;
+    w.appendChild(textWrap);
+    setTimeout(()=>{
+      const inp = document.getElementById('notable-text');
+      if(inp) inp.oninput = e=>{ d.notable_event_text = e.target.value; };
+    },0);
+    return w;
+  }
+
+  if(step === 'note'){
+    const w = stepWrap(idx, "Note libre — soir", "Quelque chose à retenir de cette journée ? Optionnel.");
+    if(d.note_morning !== undefined){
+      const morningBlock = document.createElement('div');
+      morningBlock.style.cssText = 'margin-bottom:14px';
+      const morningLabel = document.createElement('div');
+      morningLabel.style.cssText = 'font-size:12px;color:var(--text-faint);margin-bottom:6px';
+      morningLabel.textContent = 'Note du matin (éditable) :';
+      const taMorning = document.createElement('textarea');
+      taMorning.placeholder = 'Note du matin...';
+      taMorning.value = d.note_morning || '';
+      taMorning.style.cssText = 'opacity:.85';
+      taMorning.oninput = e=>{ d.note_morning = e.target.value; };
+      morningBlock.appendChild(morningLabel);
+      morningBlock.appendChild(taMorning);
+      w.appendChild(morningBlock);
+    }
+    const eveningLabel = document.createElement('div');
+    eveningLabel.style.cssText = 'font-size:12px;color:var(--text-faint);margin-bottom:6px';
+    eveningLabel.textContent = 'Note du soir :';
+    w.appendChild(eveningLabel);
+    const ta = document.createElement('textarea');
+    ta.placeholder = "Événements, ressentis, contexte...";
+    ta.value = d.free_note || '';
+    ta.oninput = e=>{ d.free_note = e.target.value; };
+    w.appendChild(ta);
+    return w;
+  }
+
+  if(step === 'recap'){
+    const w = stepWrap(idx, "Récapitulatif", "Vérifie et enregistre.");
+    const grid = document.createElement('div');
+    grid.className = 'recap-grid';
+    let rows;
+    if(state.entrySession === 'morning'){
+      const durH = d.sleep_duration_min ? Math.floor(d.sleep_duration_min/60)+'h'+String(d.sleep_duration_min%60).padStart(2,'0') : '';
+      rows = [
+        ['Date', formatDate(d.date)],
+        ['Horaires', (d.sleep_bedtime||'?')+' → '+(d.sleep_waketime||'?')+(durH ? ` (${durH})` : '')],
+        ['Sommeil', `${d.sleep_quality}/10 — ${d.wake_count} réveil${d.wake_count>1?'s':''}`],
+        ['Humeur réveil', `${d.mood_morning}/10`]
+      ];
+      if(d.dream_quality != null){
+        const dqLabel = ({0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'})[d.dream_quality] || '—';
+        rows.push(['Rêves', dqLabel + (d.nightmare ? ' · Cauchemar' : '')]);
+      }
+      if(d.weight_kg) rows.push(['Poids', d.weight_kg + ' kg']);
+      if(d.note_morning) rows.push(['Note', d.note_morning]);
+    } else {
+      rows = [
+        ['Date', formatDate(d.date)],
+        ['Paroxétine', `${d.paroxetine_mg} mg`],
+        ['Miansérine', `${d.mianserine_mg} mg`],
+        ['Oxazépam', `${d.oxazepam_mg} mg`],
+        ['Énergie globale', `${d.energy}/10`],
+        ['Anxiété', `${d.anxiety}/10`],
+        ['Brouillard (journée)', `${d.brain_fog}/10`],
+        ['Sensibilité émotionnelle', `${d.blunting > 0 ? '+' : ''}${d.blunting}`],
+        ['Humeur globale', `${d.mood_evening}/10`],
+        ['Idéations', suicidalLabel(d.suicidal)],
+        ['RGO', d.rgo ? `Oui (${d.rgo_intensity}/10)` : 'Non']
+      ];
+      if(d.side_effects.length > 0){
+        const labels = d.side_effects.map(s => s === 'autre' ? (d.side_effects_other||'autre') : SIDE_EFFECT_LABELS[s]);
+        rows.push(['Ressentis négatifs', labels.join(', ')]);
+      }
+      if(d.positive_feelings && d.positive_feelings.length > 0){
+        rows.push(['Ressentis positifs ✨', d.positive_feelings.map(k=>POSITIVE_FEELING_LABELS[k]||k).join(', ')]);
+      }
+      {
+        const parts = [`☕ ${d.cafes_count||0}`, `🍷 ${d.alcohol_units||0}`];
+        if(d.gaviscon_doses) parts.push(`🧯 Gav. ${d.gaviscon_doses}`);
+        if(d.pantoprazole_doses) parts.push(`💊 Panto. ${d.pantoprazole_doses}`);
+        if(d.cafes_count > 0 || d.alcohol_units > 0 || d.gaviscon_doses > 0 || d.pantoprazole_doses > 0) rows.push(['Cafés / méd. dig.', parts.join('  ')]);
+      }
+      if(d.activities && d.activities.length > 0){
+        rows.push(['Activités', d.activities.join(', ')]);
+      }
+      rows.push(['Activité physique', ({0:'0 — Sédentaire',1:'1 — Légèrement actif',2:'2 — Actif',3:'3 — Cardio'})[d.physical_activity] || '0']);
+      { const t=d.social_media_min||0; rows.push(['Réseaux sociaux', t===0?'Aucun':`${Math.floor(t/60)}h${String(t%60).padStart(2,'0')}`]); }
+      if(d.notable_event) rows.push(['Événement', d.notable_event_text || '—']);
+      if(d.free_note) rows.push(['Note', d.free_note]);
+    }
+    rows.forEach(([k,v])=>{
+      const r = document.createElement('div');
+      r.className = 'recap-row';
+      r.innerHTML = `<span class="k">${k}</span><span class="v">${escapeHtml(String(v))}</span>`;
+      grid.appendChild(r);
+    });
+    w.appendChild(grid);
+    return w;
+  }
+}
+
+window.medAdjust = function(field, delta){
+  const d = state.entryDraft;
+  d[field] = Math.max(0, (d[field]||0) + delta);
+  const inp = document.getElementById(field === 'paroxetine_mg' ? 'm-parox' : field === 'mianserine_mg' ? 'm-mian' : 'm-oxa');
+  if(inp) inp.value = d[field];
+};
+
+function suicidalLabel(v){
+  return {aucune:'Aucune', fugaces:'Fugaces', presentes:'Présentes', intenses:'Intenses'}[v] || v;
+}
+
+function formatDate(s){
+  const d = new Date(s);
+  return d.toLocaleDateString('fr-FR', {weekday:'short', day:'numeric', month:'short'});
+}
+
+function escapeHtml(s){
+  if(typeof s !== 'string') s = String(s);
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function nextStep(){
+  if(state.entryStep === state.entrySteps.length - 1){
+    if(state.singleStepEdit){
+      const idx = state.data.entries.findIndex(e => e.id === state.entryDraft.id);
+      if(idx >= 0) state.data.entries[idx] = JSON.parse(JSON.stringify(state.entryDraft));
+      await saveData();
+      state.singleStepEdit = false;
+      showEditDay(state.entryDraft.id);
+      toast('Modifié.', 'success');
+      return;
+    }
+    const draft = state.entryDraft;
+    if(state.entrySession === 'morning') draft.morning_done = true;
+    else {
+      draft.evening_done = true;
+      state.data.quicknotes = [];
+    }
+    // Anti-doublon : si la date a été modifiée, fusionner avec l'entrée existante pour cette date
+    const existingByDate = state.data.entries.find(e => e.date === draft.date && e.id !== draft.id);
+    if(existingByDate){
+      // Fusionner : les données de la session courante écrasent, les autres restent
+      if(state.entrySession === 'morning'){
+        Object.assign(existingByDate, {morning_done:true, sleep_bedtime:draft.sleep_bedtime, sleep_waketime:draft.sleep_waketime, sleep_duration_min:draft.sleep_duration_min, sleep_quality:draft.sleep_quality, wake_count:draft.wake_count, dream_quality:draft.dream_quality, nightmare:draft.nightmare, nightmare_note:draft.nightmare_note, mood_morning:draft.mood_morning, brain_fog_morning:draft.brain_fog_morning, energy_morning:draft.energy_morning, note_morning:draft.note_morning, weight_kg:draft.weight_kg});
+      } else {
+        Object.assign(existingByDate, {evening_done:true, paroxetine_mg:draft.paroxetine_mg, mianserine_mg:draft.mianserine_mg, oxazepam_mg:draft.oxazepam_mg, energy:draft.energy, anxiety:draft.anxiety, brain_fog:draft.brain_fog, blunting:draft.blunting, mood_evening:draft.mood_evening, suicidal:draft.suicidal, suicidal_note:draft.suicidal_note, rgo:draft.rgo, rgo_intensity:draft.rgo_intensity, side_effects:draft.side_effects, side_effects_other:draft.side_effects_other, positive_feelings:draft.positive_feelings, cafes_count:draft.cafes_count, alcohol_units:draft.alcohol_units, gaviscon_doses:draft.gaviscon_doses, pantoprazole_doses:draft.pantoprazole_doses, activities:draft.activities, activities_other:draft.activities_other, activities_note:draft.activities_note, physical_activity:draft.physical_activity, social_media_min:draft.social_media_min, notable_event:draft.notable_event, notable_event_text:draft.notable_event_text, free_note:draft.free_note});
+      }
+      // Supprimer l'ancien draft si c'était une nouvelle entrée ou une entrée séparée
+      const oldIdx = state.data.entries.findIndex(e => e.id === draft.id);
+      if(oldIdx >= 0 && state.data.entries[oldIdx].id !== existingByDate.id) state.data.entries.splice(oldIdx, 1);
+    } else {
+      const idx = state.data.entries.findIndex(e => e.id === draft.id);
+      if(idx >= 0) state.data.entries[idx] = draft;
+      else state.data.entries.push(draft);
+    }
+    await saveData();
+    showView('home');
+    toast(`Session ${state.entrySession === 'morning' ? 'matin' : 'soir'} enregistrée.`, 'success');
+    return;
+  }
+  state.entryStep++;
+  renderEntryStep();
+}
+
+function prevStep(){
+  if(state.singleStepEdit){
+    state.singleStepEdit = false;
+    showEditDay(state.editingEntryId);
+    return;
+  }
+  if(state.entryStep > 0){
+    state.entryStep--;
+    renderEntryStep();
+  }
+}
+
+/* ============================================================
+   EDIT DAY (modification d'une entrée champ par champ)
+   ============================================================ */
+
+function showEditDay(entryId){
+  const entry = state.data.entries.find(e => e.id === entryId);
+  if(!entry) return;
+  state.entryDraft = JSON.parse(JSON.stringify(entry));
+  migrateEntry(state.entryDraft);
+  state.editingEntryId = entryId;
+  state.singleStepEdit = false;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-edit-day').classList.add('active');
+  state.currentView = 'edit-day';
+  window.scrollTo(0, 0);
+  if(!_skipPush) history.pushState({view:'edit-day', entryId}, '');
+  renderEditDayView(entry);
+}
+
+function renderEditDayView(entry){
+  document.getElementById('edit-day-title').textContent = formatDate(entry.date);
+
+  // Navigation prev / next
+  const sorted = state.data.entries.slice().sort((a,b) => a.date.localeCompare(b.date));
+  const idx = sorted.findIndex(e => e.id === entry.id);
+  const prevEntry = idx > 0 ? sorted[idx - 1] : null;
+  const nextEntry = idx < sorted.length - 1 ? sorted[idx + 1] : null;
+  const nav = document.getElementById('edit-day-nav');
+  nav.innerHTML = '';
+  if(prevEntry){
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.style.cssText = 'padding:6px 12px;font-size:12px';
+    btn.textContent = '← ' + formatDate(prevEntry.date);
+    btn.onclick = () => showEditDay(prevEntry.id);
+    nav.appendChild(btn);
+  } else {
+    nav.appendChild(document.createElement('span'));
+  }
+  if(nextEntry){
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.style.cssText = 'padding:6px 12px;font-size:12px';
+    btn.textContent = formatDate(nextEntry.date) + ' →';
+    btn.onclick = () => showEditDay(nextEntry.id);
+    nav.appendChild(btn);
+  }
+
+  const c = document.getElementById('edit-day-content');
+  c.innerHTML = '';
+
+  const mkSection = (label, steps, session) => {
+    const done = session === 'morning' ? entry.morning_done : entry.evening_done;
+    const sec = document.createElement('div');
+    sec.className = 'edit-day-section';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px';
+    const h3 = document.createElement('h3');
+    h3.style.margin = '0';
+    h3.textContent = label;
+    hdr.appendChild(h3);
+    if(done){
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger';
+      delBtn.style.cssText = 'padding:4px 10px;font-size:11px';
+      delBtn.textContent = 'Supprimer session';
+      delBtn.onclick = () => deleteSession(entry.id, session);
+      hdr.appendChild(delBtn);
+    }
+    sec.appendChild(hdr);
+    steps.forEach(step => {
+      const row = document.createElement('div');
+      row.className = 'edit-day-row';
+      row.innerHTML = `
+        <span class="edit-day-row-label">${STEP_LABELS[step]||step}</span>
+        <span class="edit-day-row-value">${formatStepValue(entry, step)}</span>
+        <span class="edit-day-row-arrow">›</span>
+      `;
+      row.onclick = () => editStep(session, step);
+      sec.appendChild(row);
+    });
+    c.appendChild(sec);
+  };
+
+  mkSection('☀️ Session matin', MORNING_EDIT_STEPS, 'morning');
+  mkSection('🌙 Session soir', EVENING_EDIT_STEPS, 'evening');
+}
+
+function formatStepValue(e, step){
+  const dash = '—';
+  switch(step){
+    case 'sleep_schedule': return (e.sleep_bedtime && e.sleep_waketime) ? `${e.sleep_bedtime} → ${e.sleep_waketime}` : dash;
+    case 'sleep_quality': return e.sleep_quality != null ? `${e.sleep_quality}/10` : dash;
+    case 'wake_count': return e.wake_count != null ? `${e.wake_count} réveil${e.wake_count!==1?'s':''}` : dash;
+    case 'dreams': {
+      const dq = ({0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'})[e.dream_quality];
+      if(!dq) return dash;
+      let r = dq;
+      if(e.nightmare) r += ' · Cauchemar' + (e.nightmare_note ? ` (${e.nightmare_note.slice(0,30)}…)` : '');
+      return r;
+    }
+    case 'mood_morning': return e.mood_morning != null ? `${e.mood_morning}/10` : dash;
+    case 'brain_fog_morning': return e.brain_fog_morning != null ? `${e.brain_fog_morning}/10` : dash;
+    case 'energy_morning': return e.energy_morning != null ? `${e.energy_morning}/10` : dash;
+    case 'weight': return e.weight_kg != null ? `${e.weight_kg} kg` : dash;
+    case 'note_morning': return e.note_morning ? `"${e.note_morning.slice(0,35)}${e.note_morning.length>35?'…':''}"` : dash;
+    case 'meds': return `Parox. ${e.paroxetine_mg}mg · Mians. ${e.mianserine_mg}mg · Oxa. ${e.oxazepam_mg}mg`;
+    case 'energy': return e.energy != null ? `${e.energy}/10` : dash;
+    case 'anxiety': return e.anxiety != null ? `${e.anxiety}/10` : dash;
+    case 'brain_fog': return e.brain_fog != null ? `${e.brain_fog}/10` : dash;
+    case 'blunting': return e.blunting != null ? `${e.blunting>=0?'+':''}${e.blunting}` : dash;
+    case 'mood_evening': return e.mood_evening != null ? `${e.mood_evening}/10` : dash;
+    case 'suicidal': return suicidalLabel(e.suicidal) || dash;
+    case 'rgo': return e.rgo ? `Oui${e.rgo_intensity ? ' ('+e.rgo_intensity+'/10)' : ''}` : 'Non';
+    case 'side_effects': return (e.side_effects && e.side_effects.length) ? e.side_effects.map(k=>SIDE_EFFECT_LABELS[k]||k).join(', ').slice(0,45) : 'Aucun';
+    case 'positive_feelings': return (e.positive_feelings && e.positive_feelings.length) ? e.positive_feelings.map(k=>POSITIVE_FEELING_LABELS[k]||k).join(', ').slice(0,45) : 'Aucun';
+    case 'cafes_alcohol': return `☕ ${e.cafes_count||0} · 🍷 ${e.alcohol_units||0}${e.gaviscon_doses ? ' · 🧯 Gav. '+e.gaviscon_doses : ''}${e.pantoprazole_doses ? ' · 💊 Panto. '+e.pantoprazole_doses : ''}`;
+    case 'activities': return (e.activities && e.activities.length) ? e.activities.slice(0,3).join(', ')+(e.activities.length>3?'…':'') : dash;
+    case 'physical_activity': return ({0:'0 — Sédentaire',1:'1 — Légèrement actif',2:'2 — Actif',3:'3 — Cardio'})[e.physical_activity] ?? dash;
+    case 'social_media': { const t=e.social_media_min||0; return t===0?'Aucun':`${Math.floor(t/60)}h${String(t%60).padStart(2,'0')}`; }
+    case 'notable_event': return e.notable_event ? `Oui${e.notable_event_text ? ' : '+e.notable_event_text.slice(0,25) : ''}` : 'Non';
+    case 'note': return e.free_note ? `"${e.free_note.slice(0,35)}${e.free_note.length>35?'…':''}"` : dash;
+    default: return dash;
+  }
+}
+
+function editStep(session, stepName){
+  state.singleStepEdit = true;
+  state.entrySession = session;
+  state.entrySteps = [stepName];
+  state.entryStep = 0;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-entry').classList.add('active');
+  state.currentView = 'entry';
+  window.scrollTo(0, 0);
+  history.pushState({view:'entry-single-step'}, '');
+  renderEntryStep();
+}
+
+/* ============================================================
+   HISTORY
+   ============================================================ */
+
+function renderHistory(query){
+  const wrap = document.getElementById('history-list-wrap');
+  if(query === undefined){
+    const inp = document.getElementById('history-search');
+    query = inp ? inp.value.trim().toLowerCase() : '';
+  }
+  let entries = state.data.entries.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  if(query){
+    entries = entries.filter(e => {
+      const text = [e.date, e.free_note||'', e.note_morning||'', e.notable_event_text||'', e.activities_note||''].join(' ').toLowerCase();
+      return text.includes(query);
+    });
+  }
+  if(entries.length === 0){
+    wrap.innerHTML = '<div class="history-empty">' + (query ? 'Aucun résultat pour cette recherche.' : 'Aucune entrée pour le moment.<br>Commence par saisir aujourd\'hui depuis l\'accueil.') + '</div>';
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'history-list';
+  entries.forEach(e => {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    const sessions = (e.morning_done ? '☀️' : '') + (e.evening_done ? '🌙' : '');
+    const sleepDurH = e.sleep_duration_min ? (() => { const h=Math.floor(e.sleep_duration_min/60),m=e.sleep_duration_min%60; return h+'h'+(m?String(m).padStart(2,'0'):''); })() : '—';
+    const sleepDurPct = e.sleep_duration_min ? Math.min(100, Math.max(0, ((e.sleep_duration_min/60)-3)/9*100)) : 0;
+    item.innerHTML = `
+      <div class="history-item-head">
+        <div class="history-item-date">${formatDate(e.date)} ${sessions}</div>
+      </div>
+      <div class="history-item-metrics">
+        <div class="metric-mini"><span class="metric-mini-label">Humeur</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.mood_evening||0)*10}%;background:var(--teal)"></div></div><span class="metric-mini-val">${e.mood_evening??'—'}</span></div>
+        <div class="metric-mini"><span class="metric-mini-label">Sommeil qlt</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.sleep_quality||0)*10}%;background:var(--amber)"></div></div><span class="metric-mini-val">${e.sleep_quality??'—'}</span></div>
+        <div class="metric-mini"><span class="metric-mini-label">Durée</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${sleepDurPct}%;background:#5dbb63"></div></div><span class="metric-mini-val" style="width:32px">${sleepDurH}</span></div>
+        <div class="metric-mini"><span class="metric-mini-label">Énergie</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.energy||0)*10}%;background:var(--purple)"></div></div><span class="metric-mini-val">${e.energy??'—'}</span></div>
+        <div class="metric-mini"><span class="metric-mini-label">Brouillard</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.brain_fog||0)*10}%;background:#7a92aa"></div></div><span class="metric-mini-val">${e.brain_fog??'—'}</span></div>
+        <div class="metric-mini"><span class="metric-mini-label">Activité phys.</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.physical_activity||0)/3*100}%;background:#f59e0b"></div></div><span class="metric-mini-val">${e.physical_activity??'—'}/3</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-secondary" style="flex:1;padding:8px;font-size:12px" data-edit="${e.id}">Modifier</button>
+        <button class="btn btn-danger" style="padding:8px 12px;font-size:12px" data-delete="${e.id}" data-date="${e.date}">Supprimer</button>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+  // Delegation
+  list.addEventListener('click', e => {
+    const editBtn = e.target.closest('[data-edit]');
+    const delBtn = e.target.closest('[data-delete]');
+    if(editBtn) showEditDay(editBtn.dataset.edit);
+    if(delBtn) deleteEntry(delBtn.dataset.delete, delBtn.dataset.date);
+  });
+  wrap.innerHTML = '';
+  wrap.appendChild(list);
+}
+
+async function deleteEntry(id, date){
+  if(!confirm(`Supprimer définitivement le ${formatDate(date)} et toutes ses données ?`)) return;
+  state.data.entries = state.data.entries.filter(e => e.id !== id);
+  await saveData();
+  renderHistory();
+  toast('Entrée supprimée.', 'success');
+}
+
+async function deleteSession(id, session){
+  const label = session === 'morning' ? 'session matin' : 'session soir';
+  if(!confirm(`Supprimer définitivement la ${label} de ce jour ? Les données de l'autre session sont conservées.`)) return;
+  const entry = state.data.entries.find(e => e.id === id);
+  if(!entry) return;
+  if(session === 'morning'){
+    Object.assign(entry, {
+      morning_done: false,
+      sleep_bedtime:'', sleep_waketime:'', sleep_duration_min:0,
+      sleep_quality:5, wake_count:0, dream_quality:null, nightmare:false, nightmare_note:'',
+      mood_morning:5, brain_fog_morning:5, energy_morning:5,
+      note_morning:'', weight_kg:null
+    });
+  } else {
+    const blank = blankEntry(entry.date);
+    Object.assign(entry, {
+      evening_done: false,
+      paroxetine_mg:blank.paroxetine_mg, mianserine_mg:blank.mianserine_mg, oxazepam_mg:0,
+      energy:5, anxiety:5, brain_fog:5, blunting:0, mood_evening:5,
+      suicidal:'aucune', suicidal_note:'', rgo:false, rgo_intensity:0,
+      side_effects:[], side_effects_other:'', positive_feelings:[],
+      cafes_count:0, alcohol_units:0, gaviscon_doses:0, pantoprazole_doses:0,
+      activities:[], activities_other:'', activities_note:'',
+      physical_activity:0, social_media_min:0,
+      notable_event:false, notable_event_text:'', free_note:''
+    });
+  }
+  await saveData();
+  showEditDay(id);
+  toast(`Session ${session === 'morning' ? 'matin' : 'soir'} supprimée.`, 'success');
+}
+
+/* ============================================================
+   STATS
+   ============================================================ */
+
+function renderStats(){
+  const c = document.getElementById('stats-content');
+  c.innerHTML = '';
+  // Détruire les charts existants
+  Object.values(state.charts).forEach(ch => { try{ ch.destroy(); }catch(e){} });
+  state.charts = {};
+
+  const entries = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  if(entries.length === 0){
+    c.innerHTML = '<div class="history-empty">Pas encore de données. Reviens après quelques jours de suivi.</div>';
+    return;
+  }
+
+  if(state.statsTab === 'curves') renderCurves(c, entries);
+  else if(state.statsTab === 'heatmap') renderHeatmap(c, entries);
+  else if(state.statsTab === 'meds') renderDosesCharts(c, entries);
+  else if(state.statsTab === 'corr') renderCorrelations(c, entries);
+  else if(state.statsTab === 'side_effects') renderSideEffectsChart(c, entries);
+  else if(state.statsTab === 'positive_feelings') renderPositiveFeelingsChart(c, entries);
+  else if(state.statsTab === 'activities_impact') renderActivitiesImpact(c, entries);
+  else if(state.statsTab === 'weekly') renderWeeklySummary(c, entries);
+}
+
+function renderCurves(c, entries){
+  // Normalisation durée sommeil → 0-10
+  // 7.5h = 5 (norme), chaque heure d'écart = ±2 pts
+  // <7h : déficit, >9h : hypersomnie
+  const sleepNorm = min => {
+    if(!min) return null;
+    const h = min / 60;
+    return +Math.max(0, Math.min(10, (h - 7.5) * 2 + 5)).toFixed(1);
+  };
+  // Normalisation sensibilité émotionnelle : -5→0, 0→5, +5→10
+  const bluntNorm = v => v != null ? v + 5 : null;
+
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  sec.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <h3 style="margin:0">Évolution sur ${entries.length} jour${entries.length>1?'s':''}</h3>
+      <span style="font-size:12px;color:var(--text-faint)">Clique sur la légende pour masquer / afficher</span>
+      <button id="curves-toggle-all" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;background:var(--bg-3);border:1px solid var(--border);color:var(--text-faint);cursor:pointer;transition:var(--t)" title="Tout masquer pour repartir de zéro">Tout masquer</button>
+    </div>
+    <div class="stats-card"><div class="chart-wrap tall"><canvas id="chart-curves"></canvas></div></div>
+  `;
+  c.appendChild(sec);
+
+  const ctx = document.getElementById('chart-curves').getContext('2d');
+  const labels = entries.map(e => e.date.slice(5));
+
+  const chart = state.charts.curves = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {label:'Humeur globale',       data: entries.map(e=>e.mood_evening),        borderColor:'#4ecdc4', backgroundColor:'rgba(78,205,196,.1)',   tension:.3, fill:false, pointRadius:3},
+        {label:'Qualité sommeil',      data: entries.map(e=>e.sleep_quality),        borderColor:'#f5a623', backgroundColor:'rgba(245,166,35,.1)',  tension:.3, fill:false, pointRadius:3},
+        {label:'Anxiété',              data: entries.map(e=>e.anxiety),              borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)',    tension:.3, fill:false, pointRadius:3},
+        {label:'Énergie globale',      data: entries.map(e=>e.energy),               borderColor:'#9b6dff', backgroundColor:'rgba(155,109,255,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Sensibilité émot.',    data: entries.map(e=>bluntNorm(e.blunting)),   borderColor:'#6b7785', backgroundColor:'rgba(107,119,133,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[4,4]},
+        {label:'Durée sommeil',        data: entries.map(e=>sleepNorm(e.sleep_duration_min)), borderColor:'#5dbb63', backgroundColor:'rgba(93,187,99,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[2,5]},
+        {label:'Brouillard (réveil)',  data: entries.map(e=>e.brain_fog_morning),    borderColor:'#b0c4de', backgroundColor:'rgba(176,196,222,.1)',  tension:.3, fill:false, pointRadius:3, borderDash:[6,3]},
+        {label:'Brouillard (journée)', data: entries.map(e=>e.brain_fog),            borderColor:'#7a92aa', backgroundColor:'rgba(122,146,170,.1)',  tension:.3, fill:false, pointRadius:3, borderDash:[3,3]},
+        {label:'Activité physique',  data: entries.map(e=>e.physical_activity!=null ? e.physical_activity/3*10 : null), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[5,3], hidden:true},
+        {label:'Cafés (normalisé)',  data: entries.map(e=>e.cafes_count!=null ? Math.min(10,e.cafes_count/5*10) : null), borderColor:'#c8860a', backgroundColor:'rgba(200,134,10,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[2,4], hidden:true},
+        {label:'Réseaux sociaux',    data: entries.map(e=>e.social_media_min!=null ? Math.min(10,e.social_media_min/180*10) : null), borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', tension:.3, fill:false, pointRadius:2, borderDash:[1,3], hidden:true}
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color:'#9aa5b1', font:{size:11}, boxWidth:14 },
+          onClick(e, item, legend){
+            const ci = legend.chart;
+            ci.isDatasetVisible(item.datasetIndex) ? ci.hide(item.datasetIndex) : ci.show(item.datasetIndex);
+          }
+        },
+        tooltip: {
+          backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1',
+          callbacks: {
+            label(ctx){
+              const ds = ctx.dataset.label;
+              const e = entries[ctx.dataIndex];
+              const v = ctx.parsed.y;
+              if(ds === 'Durée sommeil'){
+                if(!e.sleep_duration_min) return 'Durée sommeil : —';
+                const h = Math.floor(e.sleep_duration_min / 60);
+                const m = e.sleep_duration_min % 60;
+                return `Durée sommeil : ${h}h${m ? m : ''} → score ${v}/10`;
+              }
+              if(ds === 'Sensibilité émot.'){
+                const raw = e.blunting != null ? (e.blunting >= 0 ? '+' : '') + e.blunting : '—';
+                return `Sensibilité émot. : ${raw} → score ${v}/10`;
+              }
+              if(ds === 'Brouillard (réveil)') return `Brouillard réveil : ${v != null ? v : '—'}/10`;
+              if(ds === 'Brouillard (journée)') return `Brouillard journée : ${v != null ? v : '—'}/10`;
+              if(ds === 'Activité physique'){ const raw = e.physical_activity; return `Activité physique : ${raw != null ? raw+'/3' : '—'} → score ${v != null ? v.toFixed(1) : '—'}/10`; }
+              if(ds === 'Cafés (normalisé)'){ return `Cafés : ${e.cafes_count ?? '—'} → score ${v != null ? v.toFixed(1) : '—'}/10`; }
+              if(ds === 'Réseaux sociaux'){ const t=e.social_media_min||0; return `Réseaux sociaux : ${Math.floor(t/60)}h${String(t%60).padStart(2,'0')} → score ${v != null ? v.toFixed(1) : '—'}/10`; }
+              return `${ds} : ${v != null ? v : '—'}/10`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks:{color:'#6b7785', font:{size:10}}, grid:{color:'#1f2730'} },
+        y: { min:0, max:10, ticks:{color:'#6b7785', font:{size:10}}, grid:{color:'#1f2730'} }
+      }
+    }
+  });
+
+  // Bouton "Tout masquer / Tout afficher"
+  const toggleBtn = document.getElementById('curves-toggle-all');
+  let allHidden = false;
+  toggleBtn.addEventListener('click', () => {
+    allHidden = !allHidden;
+    chart.data.datasets.forEach((_, i) => {
+      allHidden ? chart.hide(i) : chart.show(i);
+    });
+    toggleBtn.textContent = allHidden ? 'Tout afficher' : 'Tout masquer';
+    toggleBtn.style.color = allHidden ? 'var(--teal)' : 'var(--text-faint)';
+    toggleBtn.style.borderColor = allHidden ? 'var(--teal-dim)' : 'var(--border)';
+  });
+}
+
+function chartOpts(min, max){
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color:'#9aa5b1', font:{size:11}, boxWidth:14 } },
+      tooltip: { backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1' }
+    },
+    scales: {
+      x: { ticks:{color:'#6b7785', font:{size:10}}, grid:{color:'#1f2730'} },
+      y: { min:min, max:max, ticks:{color:'#6b7785', font:{size:10}}, grid:{color:'#1f2730'} }
+    }
+  };
+}
+
+const HEATMAP_METRICS = [
+  { key: 'mood_evening',    label: 'Humeur',    legendLow: 'basse',   legendHigh: 'haute',   colorFn: (v) => moodColor(v),                                                      titleFn: (v) => `humeur ${v}/10`    },
+  { key: 'sleep_quality',   label: 'Sommeil',   legendLow: 'mauvais', legendHigh: 'bon',     colorFn: (v) => heatColor(v, 0, 10, '#0d1b6e', '#009688', '#fde047'),              titleFn: (v) => `sommeil ${v}/10`   },
+  { key: 'anxiety',         label: 'Anxiété',   legendLow: 'faible',  legendHigh: 'intense', colorFn: (v) => heatColor(v, 0, 10, '#fde047', '#009688', '#8b0000'),              titleFn: (v) => `anxiété ${v}/10`   },
+  { key: 'brain_fog',       label: 'Brouillard',legendLow: 'clair',   legendHigh: 'dense',   colorFn: (v) => heatColor(v, 0, 10, '#fde047', '#7a92aa', '#1a2740'),              titleFn: (v) => `brouillard ${v}/10`},
+  { key: 'energy',          label: 'Énergie',   legendLow: 'basse',   legendHigh: 'haute',   colorFn: (v) => heatColor(v, 0, 10, '#1a1a3a', '#9b6dff', '#e0d4ff'),             titleFn: (v) => `énergie ${v}/10`   }
+];
+
+function heatColor(v, min, max, cLow, cMid, cHigh){
+  if(v == null) return '#1f2730';
+  const t = Math.max(0, Math.min(1, (v - min) / (max - min)));
+  if(t <= 0.5){
+    const s = t * 2;
+    return interpolate(cLow, cMid, s);
+  } else {
+    const s = (t - 0.5) * 2;
+    return interpolate(cMid, cHigh, s);
+  }
+}
+
+function renderHeatmap(c, entries){
+  if(!state.heatmapMetric) state.heatmapMetric = 'mood_evening';
+
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+
+  // Sélecteur de métrique
+  const selectorHtml = HEATMAP_METRICS.map(m =>
+    `<button class="heatmap-metric-btn${state.heatmapMetric === m.key ? ' active' : ''}" data-metric="${m.key}">${m.label}</button>`
+  ).join('');
+
+  sec.innerHTML = `
+    <h3>Heatmap</h3>
+    <div class="heatmap-metric-selector">${selectorHtml}</div>
+    <div class="stats-card" id="heatmap-card"></div>
+  `;
+  c.appendChild(sec);
+
+  // Gestion du sélecteur
+  sec.querySelector('.heatmap-metric-selector').addEventListener('click', e => {
+    const btn = e.target.closest('[data-metric]');
+    if(!btn) return;
+    state.heatmapMetric = btn.dataset.metric;
+    // Rerendre uniquement la heatmap
+    const statsContent = document.getElementById('stats-content');
+    renderStats();
+  });
+
+  const metricDef = HEATMAP_METRICS.find(m => m.key === state.heatmapMetric) || HEATMAP_METRICS[0];
+  const card = document.getElementById('heatmap-card');
+  const entryMap = {};
+  entries.forEach(e => { entryMap[e.date] = e; });
+
+  // Construire tous les mois entre la première entrée et aujourd'hui
+  const today = new Date();
+  const months = [];
+  if(entries.length > 0){
+    const firstDate = new Date(entries.reduce((min, e) => e.date < min ? e.date : min, entries[0].date));
+    let cur = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth(), 1);
+    while(cur <= end){
+      months.push(new Date(cur));
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
+
+  // Filtrer les mois sans aucune entrée
+  const hasEntry = (year, month) => {
+    const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+    return Object.keys(entryMap).some(k => k.startsWith(prefix));
+  };
+  const visibleMonths = months.filter(d => hasEntry(d.getFullYear(), d.getMonth()));
+
+  const heat = document.createElement('div');
+  heat.className = 'heatmap';
+  visibleMonths.forEach(monthDate => {
+    const monthDiv = document.createElement('div');
+    monthDiv.className = 'heatmap-month';
+    const label = monthDate.toLocaleDateString('fr-FR', {month:'long', year:'numeric'});
+    const grid = document.createElement('div');
+    grid.className = 'heatmap-grid';
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    let offset = firstDay.getDay() - 1;
+    if(offset < 0) offset = 6;
+    for(let i = 0; i < offset; i++){
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell future';
+      grid.appendChild(cell);
+    }
+    for(let day = 1; day <= daysInMonth; day++){
+      const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      const entry = entryMap[dateStr];
+      if(entry){
+        const v = entry[metricDef.key];
+        cell.style.background = metricDef.colorFn(v);
+        cell.title = `${dateStr} : ${metricDef.titleFn(v ?? '—')}`;
+        cell.onclick = ()=> showEditDay(entry.id);
+      } else if(dateStr > todayStr()){
+        cell.classList.add('future');
+      } else {
+        cell.classList.add('empty');
+        cell.title = `${dateStr} : non renseigné`;
+      }
+      grid.appendChild(cell);
+    }
+    monthDiv.innerHTML = `<div class="heatmap-month-label">${label}</div>`;
+    monthDiv.appendChild(grid);
+    heat.appendChild(monthDiv);
+  });
+
+  // Légende
+  const legend = document.createElement('div');
+  legend.className = 'heatmap-legend';
+  const steps = [0, 2, 4, 6, 8, 10];
+  legend.innerHTML = `<span>${metricDef.legendLow}</span><div class="heatmap-legend-cells">
+    ${steps.map(v => `<div class="heatmap-legend-cell" style="background:${metricDef.colorFn(v)}"></div>`).join('')}
+  </div><span>${metricDef.legendHigh}</span>`;
+  heat.appendChild(legend);
+  card.appendChild(heat);
+}
+
+function moodColor(m){
+  // 0 = bleu profond → 3 = bleu moyen → 5 = teal → 7 = ambré → 10 = jaune vif
+  const stops = [
+    [0,  '#0d1b6e'],
+    [3,  '#1565c0'],
+    [5,  '#009688'],
+    [7,  '#f59e0b'],
+    [10, '#fde047']
+  ];
+  if(m == null) return '#1f2730';
+  m = Math.max(0, Math.min(10, m));
+  for(let i = 0; i < stops.length - 1; i++){
+    const [v0, c0] = stops[i];
+    const [v1, c1] = stops[i+1];
+    if(m <= v1){
+      const t = (m - v0) / (v1 - v0);
+      return interpolate(c0, c1, t);
+    }
+  }
+  return stops[stops.length-1][1];
+}
+
+function interpolate(c1, c2, t){
+  const r1 = parseInt(c1.slice(1,3), 16), g1 = parseInt(c1.slice(3,5), 16), b1 = parseInt(c1.slice(5,7), 16);
+  const r2 = parseInt(c2.slice(1,3), 16), g2 = parseInt(c2.slice(3,5), 16), b2 = parseInt(c2.slice(5,7), 16);
+  const r = Math.round(r1 + (r2-r1)*t), g = Math.round(g1 + (g2-g1)*t), b = Math.round(b1 + (b2-b1)*t);
+  return `rgb(${r},${g},${b})`;
+}
+
+function renderDosesCharts(c, entries){
+  const labels = entries.map(e => e.date.slice(5));
+
+  const doseDatasets = [
+    {type:'bar', label:'Paroxétine (mg)', data: entries.map(e=>e.paroxetine_mg), backgroundColor:'rgba(155,109,255,.45)', borderColor:'#9b6dff', borderWidth:1, yAxisID:'y1'},
+    {type:'bar', label:'Oxazépam (mg)',   data: entries.map(e=>e.oxazepam_mg),   backgroundColor:'rgba(245,166,35,.35)', borderColor:'#f5a623',  borderWidth:1, yAxisID:'y1'},
+    {type:'line',label:'Miansérine (mg)', data: entries.map(e=>e.mianserine_mg), borderColor:'#5dbb63', borderDash:[4,4], pointRadius:0, fill:false, yAxisID:'y1'}
+  ];
+
+  const subCharts = [
+    { id:'chart-doses-mood',    metricLabel:'Humeur globale',    color:'#4ecdc4', data: entries.map(e=>e.mood_evening),  desc:"L'humeur se dégrade-t-elle / s'améliore-t-elle en même temps que les doses changent ?" },
+    { id:'chart-doses-fog',     metricLabel:'Brouillard mental', color:'#7a92aa', data: entries.map(e=>e.brain_fog),     desc:"Le brouillard mental évolue-t-il avec les changements de dose ?" },
+    { id:'chart-doses-anxiety', metricLabel:'Anxiété',           color:'#e74c3c', data: entries.map(e=>e.anxiety),       desc:"L'anxiété réagit-elle aux variations de dose ?" },
+    { id:'chart-doses-energy',  metricLabel:'Énergie globale',   color:'#9b6dff', data: entries.map(e=>e.energy),        desc:"L'énergie change-t-elle avec les doses ?" }
+  ];
+
+  const intro = document.createElement('div');
+  intro.className = 'home-note';
+  intro.style.marginBottom = '16px';
+  intro.innerHTML = "Chaque graphique superpose les <strong>doses de médicaments</strong> (barres, axe droit) à un <strong>indicateur de bien-être</strong> (ligne, axe gauche 0-10). Ce n'est pas une preuve causale — c'est une piste visuelle pour repérer des co-évolutions.";
+  c.appendChild(intro);
+
+  const doseScalesCfg = () => ({
+    x:  { ticks:{color:'#6b7785', font:{size:10}}, grid:{color:'#1f2730'} },
+    y:  { position:'left',  min:0, max:10, ticks:{color:'#9aa5b1', font:{size:10}}, grid:{color:'#1f2730'} },
+    y1: { position:'right', min:0, ticks:{color:'#9b6dff', font:{size:10}}, grid:{display:false}, title:{display:true, text:'mg', color:'#9b6dff'} }
+  });
+
+  subCharts.forEach((sc, idx) => {
+    const sec = document.createElement('div');
+    sec.className = 'stats-section';
+    sec.innerHTML = '<h3 style="margin:0 0 4px">'+sc.metricLabel+' / Doses</h3>'
+      +'<div style="font-size:12px;color:var(--text-faint);margin-bottom:10px">'+sc.desc+'</div>'
+      +'<div class="stats-card"><div class="chart-wrap tall"><canvas id="'+sc.id+'"></canvas></div></div>';
+    c.appendChild(sec);
+
+    const ctx = document.getElementById(sc.id).getContext('2d');
+    state.charts['doses_'+idx] = new Chart(ctx, {
+      data: {
+        labels,
+        datasets: [
+          {type:'line', label: sc.metricLabel, data: sc.data, borderColor: sc.color, backgroundColor: sc.color+'22', tension:.3, fill:true, pointRadius:3, yAxisID:'y'},
+          ...doseDatasets.map(d => Object.assign({},d))
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels:{ color:'#9aa5b1', font:{size:11}, boxWidth:14 } },
+          tooltip: { backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1' }
+        },
+        scales: doseScalesCfg()
+      }
+    });
+  });
+}
+
+function renderCorrelations(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  sec.innerHTML = `<h3>Corrélations entre indicateurs</h3>`;
+  c.appendChild(sec);
+
+  const pairs = [
+    {x:'sleep_quality', y:'mood_evening', xLabel:'Qualité du sommeil', yLabel:"Humeur globale", desc:"Est-ce qu'une bonne nuit s'accompagne d'une meilleure humeur globale ?"},
+    {x:'sleep_quality', y:'mood_evening', lag:1, xLabel:'Sommeil (J)', yLabel:"Humeur glob. (J+1)", desc:"Le sommeil prédit-il l'humeur globale du lendemain ?"},
+    {x:'cafes_count', y:'sleep_quality', xLabel:"Cafés", yLabel:"Sommeil", desc:"Le nombre de cafés affecte-t-il la qualité du sommeil ?"},
+    {x:'cafes_count', y:'anxiety', xLabel:"Cafés", yLabel:"Anxiété", desc:"Le café augmente-t-il ton niveau d'anxiété ?"},
+    {x:'sleep_quality', y:'blunting', xLabel:"Sommeil", yLabel:"Sensibilité émotionnelle", desc:"Une bonne nuit influence-t-elle ta sensibilité émotionnelle ?"},
+    {x:'physical_activity', y:'mood_evening', xLabel:"Activité physique", yLabel:"Humeur globale", desc:"L'activité physique améliore-t-elle l'humeur globale de la journée ?"},
+    {x:'anxiety', y:'sleep_quality', lag:0, xLabel:"Anxiété", yLabel:"Sommeil", desc:"L'anxiété affecte-t-elle ton sommeil ?"},
+    {x:'blunting', y:'paroxetine_mg', xLabel:"Sensibilité émotionnelle", yLabel:"Paroxétine", desc:"La sensibilité émotionnelle augmente-t-elle en réduisant la paroxétine ?"},
+    {x:'social_media_min', y:'sleep_quality', xLabel:"Réseaux sociaux (min)", yLabel:"Sommeil", desc:"Le temps d'écran en soirée nuit-il à la qualité du sommeil ?"},
+    {x:'physical_activity', y:'anxiety', xLabel:"Activité physique", yLabel:"Anxiété", desc:"L'activité physique réduit-elle l'anxiété le même jour ?"},
+    {x:'physical_activity', y:'sleep_quality', xLabel:"Activité physique", yLabel:"Sommeil", desc:"Bouger dans la journée améliore-t-il la qualité du sommeil ?"},
+    {x:'mood_morning', y:'mood_evening', xLabel:"Humeur réveil", yLabel:"Humeur globale (soir)", desc:"L'état du matin prédit-il celui de la journée ?"}
+  ];
+
+  pairs.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'corr-card';
+    const r = pearsonLag(entries, p.x, p.y, p.lag||0);
+    const cls = Math.abs(r) >= 0.5 ? 'strong' : Math.abs(r) >= 0.3 ? 'medium' : 'weak';
+    const meaning = interpretCorr(r);
+    card.innerHTML = `
+      <div class="corr-title">${p.xLabel} → ${p.yLabel}</div>
+      <div class="corr-desc">${p.desc}</div>
+      <div class="corr-result">
+        <div class="corr-r ${cls}">${isNaN(r) ? '—' : (r >= 0 ? '+' : '') + r.toFixed(2)}</div>
+        <div class="corr-meaning">${meaning}</div>
+      </div>
+    `;
+    c.appendChild(card);
+  });
+
+  if(entries.length < 7){
+    const warn = document.createElement('div');
+    warn.className = 'home-note';
+    warn.style.marginTop = '14px';
+    warn.textContent = "Avec moins de 7 jours de données, les corrélations sont peu fiables. Patiente quelques jours avant d'en tirer des conclusions.";
+    c.appendChild(warn);
+  }
+}
+
+function pearsonLag(entries, xKey, yKey, lag){
+  // Aligner par date, gérer le décalage
+  const xs = [], ys = [];
+  for(let i = 0; i < entries.length - lag; i++){
+    const x = entries[i][xKey];
+    const y = entries[i+lag][yKey];
+    if(typeof x === 'number' && typeof y === 'number'){
+      xs.push(x); ys.push(y);
+    }
+  }
+  if(xs.length < 3) return NaN;
+  const n = xs.length;
+  const mx = xs.reduce((a,b)=>a+b)/n;
+  const my = ys.reduce((a,b)=>a+b)/n;
+  let num=0, dx2=0, dy2=0;
+  for(let i=0;i<n;i++){
+    const dx = xs[i]-mx, dy = ys[i]-my;
+    num += dx*dy; dx2 += dx*dx; dy2 += dy*dy;
+  }
+  if(dx2 === 0 || dy2 === 0) return NaN;
+  return num / Math.sqrt(dx2 * dy2);
+}
+
+function interpretCorr(r){
+  if(isNaN(r)) return "Pas assez de variation pour conclure.";
+  const a = Math.abs(r);
+  const sign = r >= 0 ? "positif" : "négatif";
+  if(a < 0.2) return "Lien quasi inexistant.";
+  if(a < 0.4) return `Lien faible et ${sign}.`;
+  if(a < 0.6) return `Lien modéré et ${sign}.`;
+  return `Lien fort et ${sign}.`;
+}
+
+function renderSideEffectsChart(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+
+  const counts = {};
+  entries.forEach(e => {
+    if(!Array.isArray(e.side_effects)) return;
+    e.side_effects.forEach(se => {
+      if(se === 'autre') return;
+      counts[se] = (counts[se]||0) + 1;
+    });
+  });
+
+  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  if(sorted.length === 0){
+    sec.innerHTML = '<h3>Fréquence des ressentis négatifs</h3><div class="history-empty">Aucun ressenti négatif enregistré.</div>';
+    c.appendChild(sec);
+    return;
+  }
+
+  const labels = sorted.map(([k]) => SIDE_EFFECT_LABELS[k] || k);
+  const data = sorted.map(([,v]) => v);
+  const barH = Math.max(220, sorted.length * 30);
+
+  sec.innerHTML = `
+    <h3>Fréquence des ressentis négatifs</h3>
+    <div class="stats-card"><div class="chart-wrap" style="height:${barH}px"><canvas id="chart-se"></canvas></div></div>
+  `;
+  c.appendChild(sec);
+
+  const ctx = document.getElementById('chart-se').getContext('2d');
+  state.charts.side_effects = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Jours',
+        data,
+        backgroundColor: 'rgba(155,109,255,.6)',
+        borderColor: '#9b6dff',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1,
+          callbacks: { label: ctx => `${ctx.parsed.x} jour${ctx.parsed.x>1?'s':''}` }
+        }
+      },
+      scales: {
+        x: { beginAtZero:true, ticks:{color:'#6b7785', font:{size:10}, stepSize:1}, grid:{color:'#1f2730'} },
+        y: { ticks:{color:'#9aa5b1', font:{size:11}}, grid:{display:false} }
+      }
+    }
+  });
+
+  const note = document.createElement('div');
+  note.className = 'home-note';
+  note.style.marginTop = '14px';
+  note.textContent = `Sur ${entries.length} jour${entries.length>1?'s':''} enregistré${entries.length>1?'s':''}.`;
+  c.appendChild(note);
+}
+
+function renderPositiveFeelingsChart(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+
+  const counts = {};
+  entries.forEach(e => {
+    if(!Array.isArray(e.positive_feelings)) return;
+    e.positive_feelings.forEach(pf => { counts[pf] = (counts[pf]||0) + 1; });
+  });
+
+  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  if(sorted.length === 0){
+    sec.innerHTML = '<h3>Fréquence des ressentis positifs</h3><div class="history-empty">Aucun ressenti positif enregistré pour l\'instant.</div>';
+    c.appendChild(sec);
+    return;
+  }
+
+  const labels = sorted.map(([k]) => POSITIVE_FEELING_LABELS[k] || k);
+  const data   = sorted.map(([,v]) => v);
+  const barH   = Math.max(220, sorted.length * 30);
+
+  sec.innerHTML = '<h3>Fréquence des ressentis positifs</h3>'
+    +'<div class="stats-card"><div class="chart-wrap" style="height:'+barH+'px"><canvas id="chart-pf"></canvas></div></div>';
+  c.appendChild(sec);
+
+  const ctx = document.getElementById('chart-pf').getContext('2d');
+  state.charts.positive_feelings = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Jours',
+        data,
+        backgroundColor: 'rgba(78,205,196,.55)',
+        borderColor: '#4ecdc4',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1,
+          callbacks: { label: ctx => ctx.parsed.x+' jour'+(ctx.parsed.x>1?'s':'') }
+        }
+      },
+      scales: {
+        x: { beginAtZero:true, ticks:{color:'#6b7785', font:{size:10}, stepSize:1}, grid:{color:'#1f2730'} },
+        y: { ticks:{color:'#9aa5b1', font:{size:11}}, grid:{display:false} }
+      }
+    }
+  });
+
+  const note = document.createElement('div');
+  note.className = 'home-note';
+  note.style.marginTop = '14px';
+  note.textContent = 'Sur '+entries.length+' jour'+(entries.length>1?'s':'')+' enregistré'+(entries.length>1?'s':'')+'.';
+  c.appendChild(note);
+}
+
+function renderActivitiesImpact(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+
+  const withMood = entries.filter(e => e.evening_done && typeof e.mood_evening === 'number' && Array.isArray(e.activities));
+
+  if(withMood.length < 5){
+    sec.innerHTML = '<h3>Impact des activités sur l\'humeur</h3><div class="history-empty">Pas encore assez de données (minimum 5 jours renseignés).</div>';
+    c.appendChild(sec);
+    return;
+  }
+
+  const actMap = {};
+  withMood.forEach(e => {
+    e.activities.forEach(act => {
+      if(!actMap[act]) actMap[act] = { sum: 0, count: 0 };
+      actMap[act].sum   += e.mood_evening;
+      actMap[act].count += 1;
+    });
+  });
+
+  const qualified = Object.entries(actMap)
+    .filter(([, v]) => v.count >= 3)
+    .map(([name, v]) => ({ name, avg: v.sum / v.count, count: v.count }))
+    .sort((a, b) => b.avg - a.avg);
+
+  const globalAvg = withMood.reduce((s, e) => s + e.mood_evening, 0) / withMood.length;
+
+  if(qualified.length === 0){
+    sec.innerHTML = '<h3>Impact des activités sur l\'humeur</h3><div class="history-empty">Pas encore assez de répétitions par activité (minimum 3 fois chacune).</div>';
+    c.appendChild(sec);
+    return;
+  }
+
+  const barH = Math.max(260, qualified.length * 28);
+  const gaLabel = globalAvg.toFixed(1);
+  sec.innerHTML = '<h3>Impact des activités sur l\'humeur</h3>'
+    +'<div style="font-size:12px;color:var(--text-faint);margin-bottom:10px">Humeur moyenne sur les jours où chaque activité a été pratiquée (min. 3 jours). La ligne = moyenne globale ('+gaLabel+'/10). Corrélation ≠ causalité.</div>'
+    +'<div class="stats-card"><div class="chart-wrap" style="height:'+barH+'px"><canvas id="chart-act-impact"></canvas></div></div>';
+  c.appendChild(sec);
+
+  const barColors = qualified.map(a => {
+    const d = a.avg - globalAvg;
+    if(d >= 1)    return 'rgba(78,205,196,.7)';
+    if(d >= 0.3)  return 'rgba(93,187,99,.6)';
+    if(d >= -0.3) return 'rgba(155,109,255,.5)';
+    if(d >= -1)   return 'rgba(245,166,35,.6)';
+    return 'rgba(231,76,60,.6)';
+  });
+
+  const ctx = document.getElementById('chart-act-impact').getContext('2d');
+  state.charts.activities_impact = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: qualified.map(a => a.name+' (x'+a.count+')'),
+      datasets: [{ label:'Humeur moy.', data: qualified.map(a => +a.avg.toFixed(2)), backgroundColor: barColors, borderColor: barColors.map(x=>x.replace(/[\d.]+\)$/,'1)')), borderWidth:1 }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1',
+          callbacks: { label: ctx => 'Humeur moy. : '+ctx.parsed.x.toFixed(1)+'/10' } }
+      },
+      scales: {
+        x: { min:0, max:10, ticks:{color:'#6b7785', font:{size:10}}, grid:{color:'#1f2730'} },
+        y: { ticks:{color:'#9aa5b1', font:{size:10}}, grid:{display:false} }
+      }
+    },
+    plugins: [{
+      id: 'globalAvgLine',
+      afterDraw(chart){
+        const {ctx:cx, scales:{x,y}} = chart;
+        const xp = x.getPixelForValue(globalAvg);
+        cx.save();
+        cx.beginPath(); cx.moveTo(xp,y.top); cx.lineTo(xp,y.bottom);
+        cx.strokeStyle='rgba(255,255,255,.35)'; cx.lineWidth=1.5; cx.setLineDash([5,4]); cx.stroke();
+        cx.fillStyle='rgba(255,255,255,.5)'; cx.font='10px system-ui';
+        cx.fillText('moy.',xp+4,y.top+12); cx.restore();
+      }
+    }]
+  });
+
+  const note = document.createElement('div');
+  note.className = 'home-note';
+  note.style.marginTop = '14px';
+  note.innerHTML = 'Couleurs : <span style="color:#4ecdc4">&#9632;</span> bien au-dessus &nbsp;·&nbsp; <span style="color:#5dbb63">&#9632;</span> au-dessus &nbsp;·&nbsp; <span style="color:#9b6dff">&#9632;</span> neutre &nbsp;·&nbsp; <span style="color:#f5a623">&#9632;</span> en dessous &nbsp;·&nbsp; <span style="color:#e74c3c">&#9632;</span> bien en dessous';
+  c.appendChild(note);
+}
+
+function renderWeeklySummary(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+
+  if(entries.length < 3){
+    sec.innerHTML = '<h3>Résumé hebdomadaire</h3><div class="history-empty">Pas encore assez de données (minimum 3 jours).</div>';
+    c.appendChild(sec);
+    return;
+  }
+
+  const weekMap = {};
+  entries.forEach(e => {
+    const d = new Date(e.date);
+    const day = d.getDay() || 7;
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - day + 1);
+    const key = mon.toISOString().slice(0,10);
+    if(!weekMap[key]) weekMap[key] = {entries:[], monday: mon};
+    weekMap[key].entries.push(e);
+  });
+
+  const weeks = Object.values(weekMap).sort((a,b) => b.monday - a.monday);
+
+  const avg = (arr, key) => {
+    const vals = arr.map(e=>e[key]).filter(v=>typeof v==='number');
+    return vals.length ? vals.reduce((a,b)=>a+b) / vals.length : null;
+  };
+  const fmt  = (v, d=1) => v !== null ? v.toFixed(d) : '—';
+  const fmtS = (v)      => v !== null ? (v >= 0 ? '+' : '') + v.toFixed(1) : '—';
+
+  let rows = '';
+  weeks.forEach(({monday, entries:ents}) => {
+    const sun = new Date(monday); sun.setDate(sun.getDate()+6);
+    const label = `${monday.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})} – ${sun.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}`;
+    const mHumeur   = avg(ents, 'mood_evening');
+    const mSommeil  = avg(ents, 'sleep_quality');
+    const mAnx      = avg(ents, 'anxiety');
+    const mEnergy   = avg(ents, 'energy');
+    const mFog      = avg(ents, 'brain_fog');
+    const mBlunt    = avg(ents, 'blunting');
+    const mPhys     = avg(ents, 'physical_activity');
+    const mCafes    = avg(ents, 'cafes_count');
+    rows += `<tr>
+      <td>${label}</td>
+      <td>${ents.length}</td>
+      <td>${fmt(mHumeur)}</td>
+      <td>${fmt(mSommeil)}</td>
+      <td>${fmt(mAnx)}</td>
+      <td>${fmt(mEnergy)}</td>
+      <td>${fmt(mFog)}</td>
+      <td>${fmtS(mBlunt)}</td>
+      <td>${fmt(mPhys)}</td>
+      <td>${fmt(mCafes)}</td>
+    </tr>`;
+  });
+
+  sec.innerHTML = `
+    <h3>Résumé hebdomadaire</h3>
+    <div class="home-note" style="margin-bottom:14px">Moyennes par semaine des indicateurs saisis. Pertinent pour repérer une <strong>tendance sur la durée</strong> — une valeur isolée ne dit rien, c'est la direction semaine après semaine qui compte. Particulièrement utile pendant un sevrage pour distinguer un creux passager d'une régression réelle. Sensib. émot. est affichée signée (−5 à +5).</div>
+    <div class="stats-card" style="overflow-x:auto">
+      <table class="weekly-table">
+        <thead><tr>
+          <th>Semaine</th><th>J.</th>
+          <th>Humeur</th><th>Sommeil</th><th>Anxiété</th><th>Énergie</th>
+          <th>Brouillard</th><th>Sensib.</th><th>Activité</th><th>Cafés</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+  c.appendChild(sec);
+}
+
+/* ============================================================
+   SETTINGS
+   ============================================================ */
+
+function applySkin(skinId){
+  const s = SKINS[skinId] || SKINS.minuit;
+  const r = document.documentElement.style;
+  r.setProperty('--bg',       s.bg);
+  r.setProperty('--bg-2',     s.bg2);
+  r.setProperty('--bg-3',     s.bg3);
+  r.setProperty('--bg-4',     s.bg4);
+  r.setProperty('--border',   s.border);
+  r.setProperty('--text',     s.text);
+  r.setProperty('--text-dim', s.dim);
+  r.setProperty('--text-faint',s.faint);
+  r.setProperty('--teal',     s.accent);
+  r.setProperty('--teal-dim', s.accentDim);
+  r.setProperty('--amber',    s.amber);
+  r.setProperty('--amber-dim',s.amberDim);
+  state.data.settings.skin = skinId;
+  saveData();
+  renderSkinPicker();
+}
+
+function renderSkinPicker(){
+  const wrap = document.getElementById('skin-picker');
+  if(!wrap) return;
+  const current = state.data.settings.skin || 'minuit';
+  wrap.innerHTML = '';
+  Object.entries(SKINS).forEach(([id, sk]) => {
+    const card = document.createElement('button');
+    card.className = 'skin-card' + (id === current ? ' active' : '');
+    card.style.cssText = `--sp-bg:${sk.bg};--sp-bg2:${sk.bg2};--sp-bg3:${sk.bg3};--sp-border:${sk.border};--sp-accent:${sk.accent}`;
+    card.innerHTML = `
+      <div class="skin-preview">
+        <div class="sp-header"></div>
+        <div class="sp-body">
+          <div class="sp-card"><div class="sp-dot"></div><div class="sp-line"></div></div>
+          <div class="sp-card"><div class="sp-bar"></div></div>
+          <div class="sp-card"><div class="sp-dot"></div><div class="sp-line"></div><div class="sp-dot"></div></div>
+        </div>
+        <div class="sp-fab"></div>
+      </div>
+      <div class="skin-name">${sk.name}</div>
+      <div class="skin-desc">${sk.desc}</div>
+      ${id === current ? '<div class="skin-check">✓</div>' : ''}
+    `;
+    card.onclick = () => applySkin(id);
+    wrap.appendChild(card);
+  });
+}
+
+function renderSettings(){
+  // Taper display
+  const td = document.getElementById('taper-display');
+  const tapers = state.data.settings.paroxetine_taper;
+  td.innerHTML = tapers.map(t => `
+    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">
+      ${t.from || '...'} → ${t.to || 'fin'} : <strong style="color:var(--text)">${t.mg} mg</strong>
+      ${t.mode === 'every_other_day' ? ' (1 jour sur 2)' : ''}
+    </div>
+  `).join('');
+
+  // Defaults display
+  const dd = document.getElementById('defaults-display');
+  const def = state.data.settings.defaults;
+  dd.innerHTML = `
+    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Miansérine : <strong style="color:var(--text)">${def.mianserine_mg} mg</strong></div>
+    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Oxazépam : <strong style="color:var(--text)">${def.oxazepam_mg} mg</strong></div>
+  `;
+
+  // Notif button
+  const notifBtn = document.getElementById('btn-toggle-notif');
+  if(notifBtn){
+    const on = state.data.settings.notif_enabled;
+    notifBtn.textContent = on ? 'Désactiver les rappels' : 'Activer les rappels';
+  }
+
+  // Skin picker
+  renderSkinPicker();
+}
+
+function editTaper(){
+  const tapers = state.data.settings.paroxetine_taper;
+  let html = `<h3>Schéma de sevrage paroxétine</h3><p>Une ligne par tranche. Date format AAAA-MM-JJ. Mode : "daily" (tous les jours) ou "every_other_day" (un jour sur deux).</p>`;
+  tapers.forEach((t, i) => {
+    html += `
+      <div style="background:var(--bg-3);padding:12px;border-radius:var(--radius-sm);margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><label style="font-size:11px;color:var(--text-faint)">Du</label><input type="date" id="t-from-${i}" value="${t.from||''}"></div>
+          <div><label style="font-size:11px;color:var(--text-faint)">Au</label><input type="date" id="t-to-${i}" value="${t.to||''}"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><label style="font-size:11px;color:var(--text-faint)">Dose (mg)</label><input type="number" id="t-mg-${i}" value="${t.mg}" min="0" step="2.5"></div>
+          <div><label style="font-size:11px;color:var(--text-faint)">Mode</label>
+            <select id="t-mode-${i}" style="width:100%;padding:14px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
+              <option value="daily" ${t.mode==='daily'?'selected':''}>Tous les jours</option>
+              <option value="every_other_day" ${t.mode==='every_other_day'?'selected':''}>1 jour sur 2</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+  html += `<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="saveTaper(${tapers.length})">Enregistrer</button></div>`;
+  showModal(html);
+}
+
+window.saveTaper = async function(n){
+  const tapers = [];
+  for(let i = 0; i < n; i++){
+    tapers.push({
+      from: document.getElementById('t-from-'+i).value || null,
+      to: document.getElementById('t-to-'+i).value || null,
+      mg: parseFloat(document.getElementById('t-mg-'+i).value) || 0,
+      mode: document.getElementById('t-mode-'+i).value
+    });
+  }
+  state.data.settings.paroxetine_taper = tapers;
+  await saveData();
+  closeModal();
+  renderSettings();
+  toast('Schéma de sevrage mis à jour.', 'success');
+};
+
+function editDefaults(){
+  const def = state.data.settings.defaults;
+  const html = `
+    <h3>Doses par défaut</h3>
+    <p>Valeurs pré-remplies à chaque nouvelle saisie.</p>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-faint)">Miansérine (mg)</label>
+      <input type="number" id="def-mian" value="${def.mianserine_mg}" min="0" step="10">
+    </div>
+    <div style="margin-bottom:18px">
+      <label style="font-size:12px;color:var(--text-faint)">Oxazépam (mg)</label>
+      <input type="number" id="def-oxa" value="${def.oxazepam_mg}" min="0" step="10">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveDefaults()">Enregistrer</button>
+    </div>
+  `;
+  showModal(html);
+}
+
+window.saveDefaults = async function(){
+  state.data.settings.defaults.mianserine_mg = parseFloat(document.getElementById('def-mian').value)||0;
+  state.data.settings.defaults.oxazepam_mg = parseFloat(document.getElementById('def-oxa').value)||0;
+  await saveData();
+  closeModal();
+  renderSettings();
+  toast('Réglages enregistrés.', 'success');
+};
+
+/* ============================================================
+   EXPORT / IMPORT
+   ============================================================ */
+
+function exportJSON(){
+  const exportObj = {
+    schema_version: VERSION,
+    exported_at: new Date().toISOString(),
+    field_definitions: FIELD_DEFS,
+    settings: state.data.settings,
+    entries: state.data.entries
+  };
+  const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type:'application/json'});
+  download(blob, `tracker-export-${todayStr()}.json`);
+}
+
+function exportCSV(){
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const header = cols.join(';');
+  const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
+    cols.map(c => csvEscape(e[c])).join(';')
+  );
+  const csv = '\uFEFF' + header + '\n' + rows.join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  download(blob, `tracker-export-${todayStr()}.csv`);
+}
+
+function csvEscape(v){
+  if(v === null || v === undefined) return '';
+  if(Array.isArray(v)) v = v.join('|');
+  if(typeof v === 'boolean') return v ? '1' : '0';
+  const s = String(v);
+  if(s.includes(';') || s.includes('"') || s.includes('\n')){
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function exportMarkdown(){
+  const entries = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  let md = `# Suivi traitement — Export du ${new Date().toLocaleDateString('fr-FR')}\n\n`;
+  md += `**Période** : ${entries.length > 0 ? entries[0].date : '—'} à ${entries.length > 0 ? entries[entries.length-1].date : '—'}\n\n`;
+  md += `**Nombre d'entrées** : ${entries.length}\n\n`;
+  md += `## Schéma de sevrage paroxétine\n\n`;
+  state.data.settings.paroxetine_taper.forEach(t => {
+    md += `- ${t.from||'...'} → ${t.to||'fin'} : **${t.mg} mg** ${t.mode==='every_other_day' ? '(1 jour sur 2)' : ''}\n`;
+  });
+  md += `\n## Synthèse moyennes\n\n`;
+  if(entries.length > 0){
+    const avg = (k) => (entries.reduce((s,e)=>s+(e[k]||0),0)/entries.length).toFixed(1);
+    md += `| Indicateur | Moyenne |\n|---|---|\n`;
+    md += `| Appréciation journée | ${avg('mood_evening')} / 10 |\n`;
+    md += `| Sommeil | ${avg('sleep_quality')} / 10 |\n`;
+    md += `| Humeur réveil | ${avg('mood_morning')} / 10 |\n`;
+    md += `| Brouillard mental (journée) | ${avg('brain_fog')} / 10 |\n`;
+    md += `| Énergie journée | ${avg('energy')} / 10 |\n`;
+    md += `| Anxiété | ${avg('anxiety')} / 10 |\n`;
+    md += `| Sensibilité émotionnelle | ${avg('blunting')} |\n`;
+    md += `| Activité physique | ${avg('physical_activity')} / 3 |\n`;
+    md += `| Cafés (moy.) | ${avg('cafes_count')} |\n`;
+  }
+  md += `\n## Détail jour par jour\n\n`;
+  entries.forEach(e => {
+    md += `### ${e.date}\n\n`;
+    if(e.morning_done){
+      md += `**Matin**\n`;
+      if(e.sleep_bedtime || e.sleep_waketime){
+        const durH = e.sleep_duration_min ? Math.floor(e.sleep_duration_min/60)+'h'+String(e.sleep_duration_min%60).padStart(2,'0') : '';
+        md += `- Horaires : ${e.sleep_bedtime||'?'} → ${e.sleep_waketime||'?'}${durH ? ' ('+durH+')' : ''}\n`;
+      }
+      md += `- Sommeil : ${e.sleep_quality}/10 (${e.wake_count} réveils)\n`;
+      if(e.dream_quality != null){ const dqL = {0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'}; md += `- Rêves : ${dqL[e.dream_quality]||'—'}${e.nightmare ? ' · Cauchemar' + (e.nightmare_note ? ' ('+e.nightmare_note+')' : '') : ''}\n`; }
+      md += `- Humeur réveil : ${e.mood_morning}/10\n`;
+      if(e.weight_kg != null) md += `- Poids : ${e.weight_kg} kg\n`;
+    }
+    if(e.evening_done){
+      md += `**Soir**\n`;
+      md += `- Doses : paroxétine ${e.paroxetine_mg}mg, miansérine ${e.mianserine_mg}mg, oxazépam ${e.oxazepam_mg}mg\n`;
+      md += `- Cafés ${e.cafes_count||0} · Alcool ${e.alcohol_units||0}${e.gaviscon_doses ? ' · Gaviscon '+e.gaviscon_doses : ''}${e.pantoprazole_doses ? ' · Panto. '+e.pantoprazole_doses : ''}${e.ltyrosine_mg ? ' · L-Tyr '+e.ltyrosine_mg+'mg' : ''}\n`;
+      md += `- Énergie ${e.energy}/10 · Anxiété ${e.anxiety}/10 · Brouillard ${e.brain_fog}/10 · Sensibilité émot. ${e.blunting > 0 ? '+' : ''}${e.blunting}\n`;
+      md += `- Appréciation journée : ${e.mood_evening}/10\n`;
+      const phLabels = {0:'Sédentaire',1:'Légèrement actif',2:'Actif',3:'Cardio'};
+      md += `- Activité physique : ${phLabels[e.physical_activity]||'—'}\n`;
+      if(e.social_media_min) md += `- Réseaux sociaux : ${Math.floor(e.social_media_min/60)}h${String(e.social_media_min%60).padStart(2,'0')}\n`;
+      md += `- Idéations : ${suicidalLabel(e.suicidal)}${e.suicidal_note ? ' — ' + e.suicidal_note : ''}\n`;
+      if(e.rgo) md += `- RGO : ${e.rgo_intensity}/10\n`;
+      if(e.side_effects && e.side_effects.length > 0){
+        const labels = e.side_effects.map(s => s === 'autre' ? (e.side_effects_other||'autre') : SIDE_EFFECT_LABELS[s]);
+        md += `- Ressentis négatifs : ${labels.join(', ')}\n`;
+      }
+      if(e.positive_feelings && e.positive_feelings.length > 0){
+        md += `- Ressentis positifs : ${e.positive_feelings.map(k=>POSITIVE_FEELING_LABELS[k]||k).join(', ')}\n`;
+      }
+      if(e.activities && e.activities.length > 0) md += `- Activités : ${e.activities.join(', ')}\n`;
+      if(e.notable_event) md += `- Événement marquant : ${e.notable_event_text||'—'}\n`;
+    }
+    if(e.note_morning || e.free_note){
+      const noteParts = [];
+      if(e.note_morning) noteParts.push('Notes au lever : ' + e.note_morning);
+      if(e.free_note) noteParts.push('Notes au coucher : ' + e.free_note);
+      md += `- ${noteParts.join(' | ')}\n`;
+    }
+    md += `\n`;
+  });
+  const blob = new Blob([md], {type:'text/markdown;charset=utf-8'});
+  download(blob, `tracker-export-${todayStr()}.md`);
+}
+
+function download(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Fichier téléchargé : ' + name, 'success');
+}
+
+async function importJSON(file){
+  try{
+    const text = await file.text();
+    const obj = JSON.parse(text);
+    if(!obj.entries || !Array.isArray(obj.entries)) throw new Error('Format invalide');
+    if(!confirm(`Importer ${obj.entries.length} entrées ? Cela écrasera les données actuelles.`)) return;
+    state.data.entries = obj.entries;
+    if(obj.settings) state.data.settings = obj.settings;
+    await saveData();
+    toast('Import réussi.', 'success');
+    showView('home');
+  }catch(e){
+    console.error(e);
+    toast('Erreur lors de l\'import.', 'error');
+  }
+}
+
+/* ============================================================
+   EXPORT PDF — Résumé pour consultation
+   ============================================================ */
+
+function exportPDF(){
+  const entries = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  if(entries.length === 0){ toast('Aucune donnée à exporter.','error'); return; }
+
+  const first = entries[0].date, last = entries[entries.length-1].date;
+
+  // --- Helpers ---
+  const avg = (arr, k) => { const vals = arr.map(e=>e[k]).filter(v=>typeof v==='number'); return vals.length ? (vals.reduce((a,b)=>a+b)/vals.length).toFixed(1) : '—'; };
+  const avgAll = (k) => avg(entries, k);
+  const avgDurArr = (arr) => { const vals = arr.map(e=>e.sleep_duration_min).filter(v=>v>0); if(!vals.length) return '—'; const m=vals.reduce((a,b)=>a+b)/vals.length; return Math.floor(m/60)+'h'+String(Math.round(m%60)).padStart(2,'0'); };
+  const avgSocial = () => { const vals = entries.map(e=>e.social_media_min).filter(v=>typeof v==='number'&&v>0); if(!vals.length) return '—'; const m=vals.reduce((a,b)=>a+b)/vals.length; return Math.floor(m/60)+'h'+String(Math.round(m%60)).padStart(2,'0'); };
+  const MONTHS_FR = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const DAYS_FR   = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  const fmtShort  = (s) => { const d=new Date(s); return d.getDate()+' '+MONTHS_FR[d.getMonth()]; };
+  const fmtFull   = (s) => { const d=new Date(s); return DAYS_FR[d.getDay()]+' '+d.getDate()+' '+MONTHS_FR[d.getMonth()]+' '+d.getFullYear(); };
+
+  // Couleur selon score : positif (mood/energy/sleep) ou négatif (anxiety/fog)
+  const scoreColor = (v, positive) => {
+    if(typeof v !== 'number') return '#333';
+    if(positive)  return v>=7 ? '#1a7a3a' : v>=4 ? '#b36b00' : '#c0392b';
+    else          return v<=3 ? '#1a7a3a' : v<=6 ? '#b36b00' : '#c0392b';
+  };
+  const scoreSpan = (v, positive) => typeof v==='number'
+    ? '<span style="font-weight:600;color:'+scoreColor(v,positive)+'">'+v+'</span>'
+    : '<span style="color:#aaa">—</span>';
+
+  // --- Classification activités : social vs activités ---
+  const PERSONS_LIST = ['Rebecca','Juliette','Elèves','Florence','Giovanni','Aalehx','Adma','Axelle','Benjamin','Léodi','Luca','Mathieu','Orilia','Yann','Solitude'];
+  const SOCIAL_TAGS  = ['Musique Fun Partagée','Stream','Jeu Vidéo Co-Op','Cours / Atelier','Concert'];
+  const isSocial     = (a) => PERSONS_LIST.includes(a) || SOCIAL_TAGS.includes(a);
+
+  // --- Idéations globales ---
+  const idCounts = {aucune:0,fugaces:0,presentes:0,intenses:0};
+  entries.forEach(e=>{ if(e.suicidal) idCounts[e.suicidal]=(idCounts[e.suicidal]||0)+1; });
+  const idAlert = (idCounts.intenses||0) > 0
+    ? '<div class="warn"><strong>Attention :</strong> idéations suicidaires intenses signalées sur '+idCounts.intenses+' jour(s) — à aborder en priorité en consultation.</div>'
+    : '<div class="ok">Aucune idéation suicidaire intense sur la période.</div>';
+
+  // --- SE / PF ---
+  const seCounts = {};
+  entries.forEach(e=>{ (e.side_effects||[]).forEach(s=>{ const lb=s==='autre'?(e.side_effects_other||'autre'):(SIDE_EFFECT_LABELS[s]||s); seCounts[lb]=(seCounts[lb]||0)+1; }); });
+  const topSE = Object.entries(seCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const pfCounts = {};
+  entries.forEach(e=>{ (e.positive_feelings||[]).forEach(p=>{ const lb=POSITIVE_FEELING_LABELS[p]||p; pfCounts[lb]=(pfCounts[lb]||0)+1; }); });
+  const topPF = Object.entries(pfCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  // --- Activités et social (global) ---
+  const actCounts = {}, socCounts = {};
+  entries.forEach(e=>{ (e.activities||[]).forEach(a=>{ if(isSocial(a)) socCounts[a]=(socCounts[a]||0)+1; else actCounts[a]=(actCounts[a]||0)+1; }); });
+  const topAct = Object.entries(actCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  // Partie 1 : Vie sociale = personnes uniquement
+  const topSoc = Object.entries(socCounts).filter(([k])=>PERSONS_LIST.includes(k)).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+  // --- Alcool et L-Tyrosine (moyennes/mode) ---
+  const avgAlcohol = () => { const vals = entries.map(e=>e.alcohol_units).filter(v=>typeof v==='number'&&v>0); if(!vals.length) return '0'; return (vals.reduce((a,b)=>a+b)/entries.length).toFixed(2); };
+  const modeLtyrosine = () => { const cnt={}; entries.forEach(e=>{ if(e.ltyrosine_mg) cnt[e.ltyrosine_mg]=(cnt[e.ltyrosine_mg]||0)+1; }); const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]; return top ? top[0]+' mg' : '—'; };
+
+  // --- Résumés hebdomadaires (filtrés par session complète) ---
+  const getMondayStr = (dateStr) => { const d=new Date(dateStr); const day=d.getDay(); d.setDate(d.getDate()+(day===0?-6:1-day)); return d.toISOString().slice(0,10); };
+  const weekMap = {};
+  entries.forEach(e => { const wk=getMondayStr(e.date); if(!weekMap[wk]) weekMap[wk]=[]; weekMap[wk].push(e); });
+  const weekRows = Object.keys(weekMap).sort().map(wk => {
+    const wAll = weekMap[wk];
+    const wEnd = new Date(wk); wEnd.setDate(wEnd.getDate()+6);
+    const label = fmtShort(wk)+' – '+fmtShort(wEnd.toISOString().slice(0,10));
+    const wM = wAll.filter(e=>e.morning_done);
+    const wE = wAll.filter(e=>e.evening_done);
+    const wSE = {}; wAll.forEach(e=>{ (e.side_effects||[]).forEach(s=>{ const lb=s==='autre'?(e.side_effects_other||'autre'):(SIDE_EFFECT_LABELS[s]||s); wSE[lb]=(wSE[lb]||0)+1; }); });
+    const topWSE = Object.entries(wSE).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k])=>k).join(', ') || '—';
+    const wPF = {}; wAll.forEach(e=>{ (e.positive_feelings||[]).forEach(p=>{ const lb=POSITIVE_FEELING_LABELS[p]||p; wPF[lb]=(wPF[lb]||0)+1; }); });
+    const topWPF = Object.entries(wPF).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k])=>k).join(', ') || '—';
+    const wHumeur = avg(wE,'mood_evening');
+    const wAnx    = avg(wE,'anxiety');
+    const wEn     = avg(wE,'energy');
+    const wBf     = avg(wE,'brain_fog');
+    const wSlpQ   = avg(wM,'sleep_quality');
+    return '<tr>'
+      +'<td style="white-space:nowrap;font-weight:600">'+label+'</td>'
+      +'<td class="num">'+wAll.length+'</td>'
+      +'<td class="num">'+avgDurArr(wM)+'</td>'
+      +'<td class="num c-'+colorClass(wSlpQ,true)+'">'+wSlpQ+'</td>'
+      +'<td class="num c-'+colorClass(wHumeur,true)+'">'+wHumeur+'</td>'
+      +'<td class="num c-'+colorClass(wAnx,false)+'">'+wAnx+'</td>'
+      +'<td class="num c-'+colorClass(wEn,true)+'">'+wEn+'</td>'
+      +'<td class="num c-'+colorClass(wBf,false)+'">'+wBf+'</td>'
+      +'<td style="font-size:8pt">'+topWSE+'</td>'
+      +'<td style="font-size:8pt">'+topWPF+'</td>'
+      +'</tr>';
+  }).join('');
+
+  // Helper classe couleur pour tableaux (texte coloré via class)
+  function colorClass(v, positive){
+    const n = parseFloat(v);
+    if(isNaN(n)) return 'neutral';
+    if(positive)  return n>=7 ? 'good' : n>=4 ? 'mid' : 'bad';
+    else          return n<=3 ? 'good' : n<=6 ? 'mid' : 'bad';
+  }
+
+  // --- Labels ---
+  const dreamLabels = ['Aucun souvenir','Vagues souvenirs','Rêves normaux','Rêves complexes'];
+  const actPhLabels = {0:'Sédentaire', 1:'Légèrement actif', 2:'Actif', 3:'Cardio'};
+
+  // --- Journal détaillé (Partie 2) ---
+  const dayEntries = entries.map(e => {
+    let dh = '<div class="day-entry">';
+    // En-tête du jour
+    const idDay = e.suicidal && e.suicidal !== 'aucune';
+    dh += '<div class="day-header'+(idDay?' day-header-warn':'')+'">'+fmtFull(e.date);
+    if(idDay) dh += ' <span class="id-badge">Idéations suicidaires</span>';
+    dh += '</div>';
+    dh += '<div class="day-grid">';
+
+    // === COLONNE RÉVEIL ===
+    dh += '<div class="day-col day-col-reveil">';
+    dh += '<div class="col-title">Réveil</div>';
+    if(!e.morning_done){
+      dh += '<div class="not-done">Session réveil non complétée</div>';
+    } else {
+      dh += '<table class="day-table">';
+      // Sommeil
+      const slpDur = e.sleep_duration_min > 0 ? Math.floor(e.sleep_duration_min/60)+'h'+String(e.sleep_duration_min%60).padStart(2,'0') : '';
+      const horaires = (e.sleep_bedtime && e.sleep_waketime) ? e.sleep_bedtime+' → '+e.sleep_waketime : '';
+      if(horaires) dh += '<tr><td>Horaires</td><td>'+horaires+(slpDur?' <span class="dur">('+slpDur+')</span>':'')+'</td></tr>';
+      dh += '<tr><td>Qualité sommeil</td><td>'+scoreSpan(e.sleep_quality,true)+'/10'+(e.wake_count>0?' · '+e.wake_count+' réveils':'')+'</td></tr>';
+      // Rêves
+      if(e.dream_quality !== null && e.dream_quality !== undefined){
+        let dreamStr = dreamLabels[e.dream_quality] || '—';
+        if(e.nightmare) dreamStr += ' <span class="nightmare-badge">Cauchemar</span>';
+        if(e.nightmare_note) dreamStr += ' <span class="nightmare-note">('+e.nightmare_note+')</span>';
+        dh += '<tr><td>Rêves</td><td>'+dreamStr+'</td></tr>';
+      }
+      dh += '<tr><td>Humeur au réveil</td><td>'+scoreSpan(e.mood_morning,true)+'/10</td></tr>';
+      if(e.weight_kg != null) dh += '<tr><td>Poids</td><td>'+e.weight_kg+' kg</td></tr>';
+      dh += '</table>';
+    }
+    dh += '</div>';
+
+    // === COLONNE BILAN GLOBAL ===
+    dh += '<div class="day-col day-col-bilan">';
+    dh += '<div class="col-title">Bilan Global</div>';
+    if(!e.evening_done){
+      dh += '<div class="not-done">Bilan global non complété</div>';
+    } else {
+      dh += '<table class="day-table">';
+      dh += '<tr><td>Humeur</td><td>'+scoreSpan(e.mood_evening,true)+'/10</td></tr>';
+      dh += '<tr><td>Anxiété</td><td>'+scoreSpan(e.anxiety,false)+'/10</td></tr>';
+      dh += '<tr><td>Énergie</td><td>'+scoreSpan(e.energy,true)+'/10</td></tr>';
+      dh += '<tr><td>Brouillard</td><td>'+scoreSpan(e.brain_fog,false)+'/10</td></tr>';
+      // Blunting sur /5 avec signe
+      if(e.blunting !== null && e.blunting !== undefined){
+        const bl = e.blunting;
+        const blStr = (bl>0?'+':'')+bl+'/5';
+        const blColor = bl < -2 ? '#c0392b' : bl > 2 ? '#7b2fbe' : bl === 0 ? '#888' : '#b36b00';
+        dh += '<tr><td>Sensib. émot.</td><td><span style="font-weight:600;color:'+blColor+'">'+blStr+'</span></td></tr>';
+      }
+      // Activité physique : label
+      if(e.physical_activity !== undefined && e.physical_activity !== null){
+        const actPhLabel = actPhLabels[e.physical_activity] || '—';
+        const actPhColor = e.physical_activity===0 ? '#888' : e.physical_activity===1 ? '#b36b00' : '#1a7a3a';
+        dh += '<tr><td>Activité phys.</td><td><span style="color:'+actPhColor+'">'+actPhLabel+'</span></td></tr>';
+      }
+      // Lifestyle
+      const lifestyleItems = [
+        e.cafes_count > 0     ? e.cafes_count+' café'+(e.cafes_count>1?'s':'')              : '',
+        e.alcohol_units > 0   ? e.alcohol_units+' verre'+(e.alcohol_units>1?'s':'')          : '',
+        e.social_media_min > 0 ? Math.floor(e.social_media_min/60)+'h'+String(e.social_media_min%60).padStart(2,'0')+' réseaux' : ''
+      ].filter(Boolean).join(' · ');
+      if(lifestyleItems) dh += '<tr><td>Lifestyle</td><td>'+lifestyleItems+'</td></tr>';
+      dh += '</table>';
+    }
+    dh += '</div>';
+
+    dh += '</div>'; // end day-grid
+
+    // Médicaments (toujours si au moins une session faite)
+    if(e.morning_done || e.evening_done){
+      const medsArr = [];
+      if(e.paroxetine_mg)      medsArr.push('Paroxétine '+e.paroxetine_mg+'mg');
+      if(e.mianserine_mg)      medsArr.push('Miansérine '+e.mianserine_mg+'mg');
+      if(e.oxazepam_mg)        medsArr.push('Oxazépam '+e.oxazepam_mg+'mg');
+      if(e.gaviscon_doses)     medsArr.push('Gaviscon ×'+e.gaviscon_doses);
+      if(e.pantoprazole_doses) medsArr.push('Pantoprazole ×'+e.pantoprazole_doses);
+      if(e.ltyrosine_mg)       medsArr.push('L-Tyrosine '+e.ltyrosine_mg+'mg');
+      if(medsArr.length) dh += '<div class="day-row"><span class="day-label">Médicaments :</span> '+medsArr.join(' · ')+'</div>';
+    }
+
+    if(e.evening_done){
+      // Activités (hors social)
+      const actsArr  = (e.activities||[]).filter(a=>!isSocial(a));
+      const socArr   = (e.activities||[]).filter(a=>isSocial(a));
+      if(actsArr.length)  dh += '<div class="day-row"><span class="day-label">Activités :</span> '+actsArr.join(', ')+'</div>';
+      if(socArr.length)   dh += '<div class="day-row"><span class="day-label soc">Social :</span> '+socArr.join(', ')+'</div>';
+
+      const seArr = (e.side_effects||[]).map(s=>s==='autre'?(e.side_effects_other||'autre'):(SIDE_EFFECT_LABELS[s]||s));
+      const pfArr = (e.positive_feelings||[]).map(p=>POSITIVE_FEELING_LABELS[p]||p);
+      if(seArr.length) dh += '<div class="day-row"><span class="day-label neg">Ressentis négatifs :</span> '+seArr.join(', ')+'</div>';
+      if(pfArr.length) dh += '<div class="day-row"><span class="day-label pos">Ressentis positifs :</span> '+pfArr.join(', ')+'</div>';
+
+      if(e.suicidal && e.suicidal !== 'aucune'){
+        dh += '<div class="day-row id-row"><span class="day-label id-label">Idéations suicidaires :</span> '+e.suicidal+(e.suicidal_note ? ' — '+e.suicidal_note : '')+'</div>';
+      }
+
+      if(e.note_morning || e.free_note){
+        dh += '<div class="day-notes">';
+        if(e.note_morning) dh += '<div class="day-notes-block"><span class="note-label">Note du réveil</span><div class="note-text">'+e.note_morning+'</div></div>';
+        if(e.free_note)    dh += '<div class="day-notes-block"><span class="note-label">Note globale</span><div class="note-text">'+e.free_note+'</div></div>';
+        dh += '</div>';
+      }
+    } else if(e.morning_done && e.note_morning){
+      dh += '<div class="day-notes"><div class="day-notes-block"><span class="note-label">Note du réveil</span><div class="note-text">'+e.note_morning+'</div></div></div>';
+    }
+
+    dh += '</div>';
+    return dh;
+  }).join('');
+
+  // --- CSS ---
+  const css = ''
+    +'*{margin:0;padding:0;box-sizing:border-box}'
+    +'body{font-family:Verdana,Geneva,Tahoma,sans-serif;font-size:9.5pt;color:#111;padding:14mm 13mm;max-width:210mm;line-height:1.55}'
+    +'h1{font-size:13pt;margin-bottom:4px;letter-spacing:-.01em}'
+    +'h2{font-size:10.5pt;margin:18px 0 6px;border-bottom:2px solid #1a1a2e;padding-bottom:4px;color:#1a1a2e;page-break-after:avoid}'
+    +'h3{font-size:9.5pt;margin:10px 0 4px;color:#333}'
+    +'.part-banner{font-size:11pt;font-weight:bold;padding:9px 14px;background:#1a1a2e;color:#fff;margin:0 0 16px;page-break-after:avoid;letter-spacing:.02em}'
+    +'.meta{font-size:8.5pt;color:#555;margin-bottom:16px}'
+    +'table{width:100%;border-collapse:collapse;margin:6px 0;font-size:8.5pt}'
+    +'th{background:#1a1a2e;color:#fff;font-weight:600;padding:5px 8px;text-align:center}'
+    +'td{border:1px solid #ddd;padding:4px 8px;text-align:left}'
+    +'td.num{text-align:center;font-variant-numeric:tabular-nums}'
+    +'.c-good{color:#1a7a3a;font-weight:600}'
+    +'.c-mid{color:#b36b00;font-weight:600}'
+    +'.c-bad{color:#c0392b;font-weight:600}'
+    +'.c-neutral{color:#555}'
+    +'.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}'
+    +'.grid2-act{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:6px 0}'
+    +'.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:6px}'
+    +'.warn{background:#fff3cd;border:1px solid #e2c96a;padding:8px 12px;border-radius:4px;font-size:9pt;margin:8px 0}'
+    +'.ok{background:#d4edda;border:1px solid #a8d5b1;padding:8px 12px;border-radius:4px;font-size:9pt;margin:8px 0}'
+    +'.footer{margin-top:22px;font-size:8pt;color:#777;text-align:center;border-top:1px solid #ccc;padding-top:8px}'
+    +'.day-entry{border:1px solid #ccc;border-radius:5px;padding:10px 12px;margin-bottom:10px;page-break-inside:avoid}'
+    +'.day-header{font-size:10pt;font-weight:bold;color:#fff;background:#1a1a2e;padding:5px 10px;border-radius:3px;margin-bottom:8px}'
+    +'.day-header-warn{background:#8b1a1a}'
+    +'.id-badge{display:inline-block;background:#fff3cd;color:#7a4000;font-size:7.5pt;font-weight:600;padding:1px 7px;border-radius:3px;margin-left:8px;vertical-align:middle}'
+    +'.day-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}'
+    +'.day-col{border-radius:3px;padding:7px 8px}'
+    +'.day-col-reveil{background:#f0f4ff}'
+    +'.day-col-bilan{background:#f0fff4}'
+    +'.col-title{font-size:7.5pt;font-weight:700;color:#1a1a2e;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em}'
+    +'.day-table{font-size:8.5pt;margin:0;width:100%}'
+    +'.day-table td{border:none;border-bottom:1px solid #e0e0e0;padding:3px 4px;background:transparent}'
+    +'.day-table td:first-child{color:#555;width:110px;font-size:8pt}'
+    +'.note-cell{font-style:italic;color:#333}'
+    +'.dur{color:#888;font-size:8pt}'
+    +'.not-done{font-size:8pt;color:#aaa;font-style:italic;padding:4px 0}'
+    +'.day-row{font-size:8.5pt;margin-top:4px}'
+    +'.day-label{font-weight:700;color:#333}'
+    +'.day-label.neg{color:#c0392b}'
+    +'.day-label.pos{color:#1a7a3a}'
+    +'.day-label.soc{color:#1a4a7a}'
+    +'.id-row{background:#fff3cd;padding:3px 8px;border-radius:3px;margin-top:5px;display:inline-block}'
+    +'.id-label{color:#7a3000}'
+    +'.nightmare-badge{display:inline-block;background:#c0392b;color:#fff;font-size:7pt;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px}'
+    +'.nightmare-note{font-size:7.5pt;color:#c0392b;font-style:italic}'
+    +'.day-notes{margin-top:10px;background:#f5f0ff;border:1px solid #c9b8f5;border-left:4px solid #9b6dff;padding:10px 13px;border-radius:0 4px 4px 0}'
+    +'.day-notes-block{margin-bottom:8px}'
+    +'.day-notes-block:last-child{margin-bottom:0}'
+    +'.note-label{display:block;font-weight:700;font-style:normal;color:#5a3fa0;font-size:8pt;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}'
+    +'.note-text{font-size:9pt;color:#1a1a1a;line-height:1.65;white-space:pre-wrap}'
+    +'.note-label{font-weight:700;font-style:normal;color:#444}'
+    +'@media print{'
+    +'.part-banner{page-break-before:always}'
+    +'.part-banner.first{page-break-before:auto}'
+    +'body{padding:12mm 11mm}'
+    +'table{page-break-inside:auto}'
+    +'tr{page-break-inside:avoid}'
+    +'}';
+
+  // --- HTML final ---
+  const html = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Résumé consultation — Life Tracker</title>'
+    +'<style>'+css+'</style></head><body>'
+    // === PARTIE 1 ===
+    +'<div class="part-banner first">Partie 1 — Vue d\'ensemble</div>'
+    +'<h1>Life Tracker — Résumé de suivi médical</h1>'
+    +'<div class="meta">Période : <strong>'+first+'</strong> au <strong>'+last+'</strong> &nbsp;·&nbsp; '+entries.length+' jours enregistrés &nbsp;·&nbsp; Généré le '+new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})+'</div>'
+    +'<h2>Moyennes sur la période</h2>'
+    +'<div class="grid2">'
+    +'<div><h3>Session réveil</h3><table>'
+    +'<tr><th>Indicateur</th><th>Moy.</th></tr>'
+    +'<tr><td>Durée sommeil</td><td class="num">'+avgDurArr(entries.filter(e=>e.morning_done))+'</td></tr>'
+    +'<tr><td>Qualité sommeil</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.morning_done),'sleep_quality'),true)+'">'+avg(entries.filter(e=>e.morning_done),'sleep_quality')+' /10</td></tr>'
+    +'<tr><td>Humeur au réveil</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.morning_done),'mood_morning'),true)+'">'+avg(entries.filter(e=>e.morning_done),'mood_morning')+' /10</td></tr>'
+    +'</table></div>'
+    +'<div><h3>Bilan global</h3><table>'
+    +'<tr><th>Indicateur</th><th>Moy.</th></tr>'
+    +'<tr><td>Humeur globale</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'mood_evening'),true)+'">'+avg(entries.filter(e=>e.evening_done),'mood_evening')+' /10</td></tr>'
+    +'<tr><td>Anxiété</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'anxiety'),false)+'">'+avg(entries.filter(e=>e.evening_done),'anxiety')+' /10</td></tr>'
+    +'<tr><td>Énergie journée</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'energy'),true)+'">'+avg(entries.filter(e=>e.evening_done),'energy')+' /10</td></tr>'
+    +'<tr><td>Brouillard mental</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'brain_fog'),false)+'">'+avg(entries.filter(e=>e.evening_done),'brain_fog')+' /10</td></tr>'
+    +'<tr><td>Sensibilité émot.</td><td class="num">'+avgAll('blunting')+' /5</td></tr>'
+    +'</table></div>'
+    +'</div>'
+    +'<h2>Résumés hebdomadaires</h2>'
+    +'<table><tr><th style="text-align:left">Semaine</th><th>Jours</th><th>Dur. sommeil</th><th>Qual. sommeil</th><th>Humeur</th><th>Anxiété</th><th>Énergie</th><th>Brouillard</th><th>Ressentis nég.</th><th>Ressentis pos.</th></tr>'
+    +weekRows
+    +'</table>'
+    +'<h2>Idéations suicidaires</h2>'
+    +'<table style="width:auto;min-width:280px"><tr><th>Niveau</th><th>Jours</th><th>%</th></tr>'
+    +'<tr><td>Aucune</td><td class="num">'+(idCounts.aucune||0)+'</td><td class="num">'+Math.round((idCounts.aucune||0)/entries.length*100)+'%</td></tr>'
+    +'<tr><td>Fugaces</td><td class="num">'+(idCounts.fugaces||0)+'</td><td class="num">'+Math.round((idCounts.fugaces||0)/entries.length*100)+'%</td></tr>'
+    +'<tr><td>Présentes</td><td class="num">'+(idCounts.presentes||0)+'</td><td class="num">'+Math.round((idCounts.presentes||0)/entries.length*100)+'%</td></tr>'
+    +'<tr><td style="font-weight:700;color:#c0392b">Intenses</td><td class="num" style="font-weight:700;color:#c0392b">'+(idCounts.intenses||0)+'</td><td class="num" style="font-weight:700;color:#c0392b">'+Math.round((idCounts.intenses||0)/entries.length*100)+'%</td></tr>'
+    +'</table>'
+    +idAlert
+    +'<h2>Lifestyle et Ressentis</h2>'
+    +'<div class="grid3">'
+    +'<div><h3>Lifestyle</h3><table>'
+    +'<tr><th>Indicateur</th><th>Moy.</th></tr>'
+    +'<tr><td>Cafés / jour</td><td class="num">'+avgAll('cafes_count')+'</td></tr>'
+    +'<tr><td>Alcool / jour</td><td class="num">'+avgAlcohol()+' verre(s)</td></tr>'
+    +'<tr><td>Réseaux sociaux</td><td class="num">'+avgSocial()+'</td></tr>'
+    +'<tr><td>Activité physique</td><td class="num">'+avgAll('physical_activity')+' /3</td></tr>'
+    +'<tr><td>L-Tyrosine (fréq.)</td><td class="num">'+modeLtyrosine()+'</td></tr>'
+    +'</table></div>'
+    +'<div><h3>Ressentis négatifs</h3>'
+    +(topSE.length ? '<table><tr><th>Ressenti</th><th>Jours</th></tr>'+topSE.map(([k,v])=>'<tr><td>'+k+'</td><td class="num">'+v+'</td></tr>').join('')+'</table>' : '<p style="font-size:8.5pt;color:#888;margin-top:6px">Aucun.</p>')
+    +'</div>'
+    +'<div><h3>Ressentis positifs</h3>'
+    +(topPF.length ? '<table><tr><th>Ressenti</th><th>Jours</th></tr>'+topPF.map(([k,v])=>'<tr><td>'+k+'</td><td class="num">'+v+'</td></tr>').join('')+'</table>' : '<p style="font-size:8.5pt;color:#888;margin-top:6px">Aucun.</p>')
+    +'</div>'
+    +'</div>'
+    +(topAct.length || topSoc.length ? '<h2>Activités les plus fréquentes</h2><div class="grid2-act">'
+      +(topAct.length ? '<div><h3>Activités</h3><table><tr><th>Activité</th><th>Jours</th></tr>'+topAct.map(([k,v])=>'<tr><td>'+k+'</td><td class="num">'+v+'</td></tr>').join('')+'</table></div>' : '<div></div>')
+      +(topSoc.length ? '<div><h3>Vie sociale</h3><table><tr><th>Personne / Contexte</th><th>Jours</th></tr>'+topSoc.map(([k,v])=>'<tr><td>'+k+'</td><td class="num">'+v+'</td></tr>').join('')+'</table></div>' : '<div></div>')
+      +'</div>' : '')
+    // === PARTIE 2 ===
+    +'<div class="part-banner">Partie 2 — Journal détaillé</div>'
+    +'<div class="meta">Un bloc par jour · Données de réveil <span style="background:#f0f4ff;padding:1px 6px;border-radius:2px;font-size:8pt">fond bleu</span> · Bilan global <span style="background:#f0fff4;padding:1px 6px;border-radius:2px;font-size:8pt">fond vert</span> · Notes en violet</div>'
+    +dayEntries
+    +'<div class="footer">Life Tracker v'+VERSION+' — Document généré automatiquement, ne se substitue pas à l\'avis médical.</div>'
+    +'</body></html>';
+
+  const w = window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+  toast('PDF prêt — utilise Ctrl+P pour imprimer / enregistrer en PDF.', 'success');
+}
+
+/* ============================================================
+   NOTIFICATIONS / RAPPELS
+   ============================================================ */
+
+function checkReminders(){
+  if(!state.data.settings.notif_enabled) return;
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+  const today = todayStr();
+  const entry = state.data.entries.find(e => e.date === today);
+  const h = new Date().getHours();
+  const morningDone = entry && entry.morning_done;
+  const eveningDone = entry && entry.evening_done;
+  if(!morningDone && h >= 8 && h < 14){
+    new Notification('Life Tracker', {body:'☀️ Session réveil pas encore remplie.', tag:'lt-morning'});
+  }
+  if(!eveningDone && h >= 21){
+    new Notification('Life Tracker', {body:'🌙 Session coucher pas encore remplie.', tag:'lt-evening'});
+  }
+}
+
+async function toggleNotifications(){
+  if(!('Notification' in window)){
+    toast('Ton navigateur ne supporte pas les notifications.','error');
+    return;
+  }
+  if(state.data.settings.notif_enabled){
+    state.data.settings.notif_enabled = false;
+    await saveData();
+    toast('Rappels désactivés.','success');
+    renderSettings();
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if(perm === 'granted'){
+    state.data.settings.notif_enabled = true;
+    await saveData();
+    toast('Rappels activés.','success');
+  } else {
+    toast('Permission refusée par le navigateur.','error');
+  }
+  renderSettings();
+}
+
+/* ============================================================
+   MODAL / TOAST
+   ============================================================ */
+
+function showModal(html){
+  document.getElementById('modal-content').innerHTML = html;
+  document.getElementById('modal-bg').classList.add('show');
+}
+window.closeModal = function(){
+  document.getElementById('modal-bg').classList.remove('show');
+};
+
+let toastTimer = null;
+function toast(msg, type){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type||'');
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> t.classList.remove('show'), 3000);
+}
+
+/* ============================================================
+   QUICKNOTES
+   ============================================================ */
+
+function openQuicknoteModal(){
+  if(!state.data.quicknotes) state.data.quicknotes = [];
+  const existing = state.data.quicknotes;
+  let listHtml = '';
+  if(existing.length > 0){
+    listHtml = '<div style="margin-bottom:16px">' +
+      existing.map(n => `<div class="qn-note-item"><div class="qn-note-time">${n.time}</div><div class="qn-note-text">${escapeHtml(n.text)}</div></div>`).join('') +
+      '</div>';
+  }
+  const html = `
+    <h3>Note rapide</h3>
+    ${listHtml}
+    <textarea id="qn-input" placeholder="Ce que tu veux retenir pour ce soir..." style="min-height:100px"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveQuicknote()">Ajouter</button>
+    </div>
+  `;
+  showModal(html);
+  setTimeout(()=>{ const el = document.getElementById('qn-input'); if(el) el.focus(); }, 50);
+}
+
+window.saveQuicknote = async function(){
+  const input = document.getElementById('qn-input');
+  const text = (input ? input.value : '').trim();
+  if(!text) return;
+  if(!state.data.quicknotes) state.data.quicknotes = [];
+  const now = new Date();
+  const time = now.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+  state.data.quicknotes.push({time, text});
+  await saveData();
+  closeModal();
+  renderHome();
+  toast('Note ajoutée.', 'success');
+};
+
+/* ============================================================
+   INIT
+   ============================================================ */
+
+function init(){
+  loadData();
+  // Appliquer le skin sauvegardé
+  applySkin(state.data.settings.skin || 'minuit');
+
+  // Header
+  document.getElementById('btn-home').addEventListener('click', ()=> showView('home'));
+
+  // Home
+  document.getElementById('card-entry-morning').addEventListener('click', ()=> startEntry(null, 'morning'));
+  document.getElementById('card-entry-evening').addEventListener('click', ()=> startEntry(null, 'evening'));
+  document.getElementById('fab-quicknote').addEventListener('click', openQuicknoteModal);
+  document.getElementById('card-history').addEventListener('click', ()=> showView('history'));
+  document.getElementById('card-stats').addEventListener('click', ()=> showView('stats'));
+  document.getElementById('card-settings').addEventListener('click', ()=> showView('settings'));
+
+  // Entry controls
+  document.getElementById('entry-back').addEventListener('click', prevStep);
+  document.getElementById('entry-next').addEventListener('click', nextStep);
+
+  // Stats tabs
+  document.getElementById('stats-tabs').addEventListener('click', e => {
+    if(e.target.matches('.stats-tab')){
+      document.querySelectorAll('.stats-tab').forEach(t => t.classList.remove('active'));
+      e.target.classList.add('active');
+      state.statsTab = e.target.dataset.tab;
+      renderStats();
+    }
+  });
+
+  // Settings buttons
+  document.getElementById('edit-day-back').addEventListener('click', () => showView('history'));
+  document.getElementById('history-search').addEventListener('input', () => renderHistory());
+  document.getElementById('btn-edit-taper').addEventListener('click', editTaper);
+  document.getElementById('btn-edit-defaults').addEventListener('click', editDefaults);
+  document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
+  document.getElementById('btn-toggle-notif').addEventListener('click', toggleNotifications);
+  document.getElementById('btn-export-json').addEventListener('click', exportJSON);
+  document.getElementById('btn-export-csv').addEventListener('click', exportCSV);
+  document.getElementById('btn-export-md').addEventListener('click', exportMarkdown);
+  document.getElementById('btn-import').addEventListener('click', () => document.getElementById('import-file').click());
+  document.getElementById('import-file').addEventListener('change', e => {
+    if(e.target.files[0]) importJSON(e.target.files[0]);
+  });
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    if(confirm("Effacer définitivement toutes les données ? Cette action est irréversible.")){
+      if(confirm("Vraiment sûr ? Aucune récupération possible.")){
+        localStorage.removeItem(STORAGE_DATA);
+        location.reload();
+      }
+    }
+  });
+
+  // Modal close on bg click
+  document.getElementById('modal-bg').addEventListener('click', e => {
+    if(e.target.id === 'modal-bg') closeModal();
+  });
+
+  // Navigation retour (bouton précédent du tel)
+  history.replaceState({view:'home'}, '');
+  window.addEventListener('popstate', e => {
+    _skipPush = true;
+    const s = e.state;
+    if(!s || s.view === 'home'){
+      // Fermer la modal si ouverte
+      if(document.getElementById('modal-bg').classList.contains('show')){
+        closeModal();
+      } else {
+        showView('home');
+      }
+    } else if(s.view === 'entry-single-step'){
+      state.singleStepEdit = false;
+      showEditDay(state.editingEntryId);
+    } else if(s.view === 'edit-day' && s.entryId){
+      showEditDay(s.entryId);
+    } else if(s.view === 'entry' && typeof s.step === 'number'){
+      if(state.currentView === 'entry' && s.step < state.entryStep){
+        state.entryStep = s.step;
+        renderEntryStep();
+      } else {
+        showView('home');
+      }
+    } else if(s.view){
+      showView(s.view);
+    } else {
+      showView('home');
+    }
+    _skipPush = false;
+  });
+
+  showView('home');
+
+  // Rappels : vérification au lancement + toutes les 30 min
+  setTimeout(checkReminders, 3000);
+  setInterval(checkReminders, 30 * 60 * 1000);
+
+  // PWA : service worker
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
