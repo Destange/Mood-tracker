@@ -690,7 +690,7 @@ const ACTIVITY_CATEGORIES = [
   { label: '🏠 Quotidien', items: ['Cuisine', 'Rangement', 'Tâches Ménagères'] },
   { label: '🚗 Déplacements', items: ['Trajet Train', 'Trajet Vélo', 'Trajet Voiture'] },
   { label: '🎮 Loisirs', items: ['Détente Culturelle', 'Dev', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Ordinateur', 'Sortie Culturelle'] },
-  { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Léodi', 'Luca', 'Mathieu', 'Orilia', 'Yann', 'Solitude'] }
+  { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Léodi', 'Luca', 'Mathieu', 'Yann', 'Solitude'] }
 ];
 
 /* ============================================================
@@ -3128,7 +3128,7 @@ function exportPDF(){
     : '<span style="color:#aaa">—</span>';
 
   // --- Classification activités : social vs activités ---
-  const PERSONS_LIST = ['Rebecca','Juliette','Elèves','Florence','Giovanni','Aalehx','Adma','Axelle','Benjamin','Léodi','Luca','Mathieu','Orilia','Yann','Solitude'];
+  const PERSONS_LIST = ['Rebecca','Juliette','Elèves','Florence','Giovanni','Aalehx','Adma','Axelle','Benjamin','Léodi','Luca','Mathieu','Yann','Solitude'];
   const SOCIAL_TAGS  = ['Musique Fun Partagée','Stream','Jeu Vidéo Co-Op','Cours / Atelier','Concert'];
   const isSocial     = (a) => PERSONS_LIST.includes(a) || SOCIAL_TAGS.includes(a);
 
