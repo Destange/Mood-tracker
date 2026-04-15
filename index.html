@@ -831,7 +831,7 @@ function renderHome(){
   setStatEl('stat-blunting', 'trend-blunting', avgArr(last7cal,'blunting'),      avgArr(prev7cal,'blunting'),      v=>(v>=0?'+':'')+v.toFixed(1));
 
   // Cartes sessions
-  const today = todayStr();
+  const today = logicalDateStr();
   const todayEntry = state.data.entries.find(e => e.date === today);
   const morningDone = !!(todayEntry && todayEntry.morning_done);
   const eveningDone = !!(todayEntry && todayEntry.evening_done);
@@ -862,6 +862,13 @@ function todayStr(){
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
+// Date "logique" : avant 6h du matin, on est encore dans la soirée de la veille
+function logicalDateStr(){
+  const d = new Date();
+  if(d.getHours() < 6) d.setDate(d.getDate() - 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
 /* ============================================================
    ENTRY — flow guidé question par question
    ============================================================ */
@@ -874,7 +881,7 @@ const EVENING_STEPS = [
 ];
 
 function startEntry(editId, session){
-  const today = todayStr();
+  const today = logicalDateStr();
   if(editId){
     const entry = state.data.entries.find(e=>e.id === editId);
     if(!entry) return;
@@ -968,7 +975,8 @@ function migrateEntry(e){
 function autoDetectSession(entry){
   if(entry && entry.morning_done && !entry.evening_done) return 'evening';
   if(entry && entry.evening_done && !entry.morning_done) return 'morning';
-  return new Date().getHours() >= 20 ? 'evening' : 'morning';
+  const h = new Date().getHours();
+  return (h >= 20 || h < 6) ? 'evening' : 'morning';
 }
 
 function suggestedParoxetine(date){
