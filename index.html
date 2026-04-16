@@ -3663,14 +3663,7 @@ function init(){
 
   // PWA : service worker
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', () => {
-          if(newWorker.state === 'activated') window.location.reload();
-        });
-      });
-    }).catch(()=>{});
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
   }
 
 document.addEventListener('DOMContentLoaded', init);
