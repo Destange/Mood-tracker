@@ -421,10 +421,11 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 
     <div class="settings-section">
       <h3>Rappels</h3>
-      <p class="help">Reçois une notification si une session n'est pas remplie (fonctionne quand l'app est ouverte).</p>
+      <p class="help">Reçois une notification si une session n'est pas remplie. Best effort : ça marche quand l'app est ouverte ou maintenue active en arrière-plan, ce n'est pas une alarme garantie. La notif part dans les 3 h qui suivent l'heure réglée.</p>
       <div class="actions">
         <button class="btn btn-secondary" id="btn-toggle-notif">Activer les rappels</button>
       </div>
+      <div id="reminders-config" style="margin-top:14px"></div>
     </div>
 
     <div class="settings-section">
@@ -459,7 +460,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.4</footer>
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.5</footer>
 
 </div>
 
@@ -479,7 +480,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.6.4';
+const VERSION = '1.6.5';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -515,6 +516,7 @@ function loadData(){
     if(!state.data.quicknotes) state.data.quicknotes = [];
     if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
+    if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
   }catch(e){
     console.error('Corrupted data, resetting', e);
     state.data = defaultData();
@@ -543,7 +545,11 @@ function defaultData(){
         oxazepam_mg: 0
       },
       treatment_start: '2026-01-27',
-      skin: 'minuit'
+      skin: 'minuit',
+      reminders: {
+        wake:  {enabled: true, time: '15:00'},
+        sleep: {enabled: true, time: '01:00'}
+      }
     },
     entries: [],
     quicknotes: []
@@ -2941,6 +2947,32 @@ function renderSettings(){
     notifBtn.textContent = on ? 'Désactiver les rappels' : 'Activer les rappels';
   }
 
+  // Réglage des heures de rappel (visible seulement si les rappels sont activés)
+  const remCfg = document.getElementById('reminders-config');
+  if(remCfg){
+    const on = state.data.settings.notif_enabled;
+    const r = state.data.settings.reminders || defaultData().settings.reminders;
+    if(on){
+      const rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0';
+      const labStyle = 'font-size:14px;color:var(--text);display:flex;align-items:center;gap:8px';
+      const inpStyle = 'width:auto;padding:8px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text)';
+      remCfg.innerHTML =
+        '<div style="' + rowStyle + '">' +
+          '<label style="' + labStyle + '"><input type="checkbox" id="rem-wake-on"' + (r.wake.enabled ? ' checked' : '') + '> Session réveil</label>' +
+          '<input type="time" id="rem-wake-time" value="' + r.wake.time + '" style="' + inpStyle + '">' +
+        '</div>' +
+        '<div style="' + rowStyle + '">' +
+          '<label style="' + labStyle + '"><input type="checkbox" id="rem-sleep-on"' + (r.sleep.enabled ? ' checked' : '') + '> Session coucher</label>' +
+          '<input type="time" id="rem-sleep-time" value="' + r.sleep.time + '" style="' + inpStyle + '">' +
+        '</div>' +
+        '<button class="btn btn-secondary" id="btn-save-reminders" style="margin-top:10px">Enregistrer les heures</button>';
+      const sb = document.getElementById('btn-save-reminders');
+      if(sb) sb.addEventListener('click', saveReminders);
+    } else {
+      remCfg.innerHTML = '';
+    }
+  }
+
   // Skin picker
   renderSkinPicker();
 }
@@ -3510,20 +3542,57 @@ function exportPDF(){
    NOTIFICATIONS / RAPPELS
    ============================================================ */
 
+// Fenêtre (minutes) après l'heure réglée pendant laquelle un rappel peut encore partir.
+// Vérification toutes les 30 min : 180 min laisse plusieurs occasions de notifier
+// sans transformer l'heure réglée en "tout le reste de la journée".
+const REMINDER_WINDOW_MIN = 180;
+const REMINDER_FIRED_KEY = 'tracker_reminder_fired';
+
+function parseHM(str){
+  const m = /^(\d{1,2}):(\d{2})$/.exec(str || '');
+  if(!m) return null;
+  const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+  if(h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+// État de déclenchement gardé hors de state.data (clé localStorage séparée),
+// pour ne pas polluer les données synchronisées plus tard.
+function loadReminderFired(){
+  try{ return JSON.parse(localStorage.getItem(REMINDER_FIRED_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveReminderFired(obj){
+  localStorage.setItem(REMINDER_FIRED_KEY, JSON.stringify(obj));
+}
+
 function checkReminders(){
   if(!state.data.settings.notif_enabled) return;
   if(!('Notification' in window) || Notification.permission !== 'granted') return;
-  const today = todayStr();
-  const entry = state.data.entries.find(e => e.date === today);
-  const h = new Date().getHours();
-  const morningDone = entry && entry.morning_done;
-  const eveningDone = entry && entry.evening_done;
-  if(!morningDone && h >= 8 && h < 14){
-    new Notification('Life Tracker', {body:'☀️ Session réveil pas encore remplie.', tag:'lt-morning'});
+  const rem = state.data.settings.reminders;
+  if(!rem) return;
+  const now = new Date();
+  const curMin = now.getHours() * 60 + now.getMinutes();
+  // Date logique : avant 6h on est encore dans la soirée de la veille,
+  // donc le rappel "coucher" de 01h00 vise bien la session du soir de la veille.
+  const logical = logicalDateStr();
+  const entry = state.data.entries.find(e => e.date === logical);
+  const fired = loadReminderFired();
+
+  function maybeFire(key, cfg, done, body, tag){
+    if(!cfg || !cfg.enabled) return;
+    const t = parseHM(cfg.time);
+    if(t === null) return;
+    if(done) return;
+    if(curMin < t || curMin >= t + REMINDER_WINDOW_MIN) return;
+    if(fired[key] === logical) return;
+    new Notification('Life Tracker', {body: body, tag: tag});
+    fired[key] = logical;
+    saveReminderFired(fired);
   }
-  if(!eveningDone && h >= 21){
-    new Notification('Life Tracker', {body:'🌙 Session coucher pas encore remplie.', tag:'lt-evening'});
-  }
+
+  maybeFire('wake', rem.wake, entry && entry.morning_done, '☀️ Session réveil pas encore remplie.', 'lt-wake');
+  maybeFire('sleep', rem.sleep, entry && entry.evening_done, '🌙 Session coucher pas encore remplie.', 'lt-sleep');
 }
 
 async function toggleNotifications(){
@@ -3548,6 +3617,20 @@ async function toggleNotifications(){
   }
   renderSettings();
 }
+
+window.saveReminders = async function(){
+  if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
+  const r = state.data.settings.reminders;
+  const wt = document.getElementById('rem-wake-time');
+  const st = document.getElementById('rem-sleep-time');
+  r.wake.enabled = document.getElementById('rem-wake-on').checked;
+  r.wake.time = (wt && parseHM(wt.value) !== null) ? wt.value : '15:00';
+  r.sleep.enabled = document.getElementById('rem-sleep-on').checked;
+  r.sleep.time = (st && parseHM(st.value) !== null) ? st.value : '01:00';
+  await saveData();
+  toast('Heures de rappel enregistrées.', 'success');
+  checkReminders();
+};
 
 /* ============================================================
    MODAL / TOAST
