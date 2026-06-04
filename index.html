@@ -402,15 +402,6 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     <h2 style="margin:0 0 16px;font-size:22px">Réglages</h2>
 
     <div class="settings-section">
-      <h3>Schéma de sevrage paroxétine</h3>
-      <p class="help">Pré-rempli selon ce que ton psychiatre a indiqué. Modifiable ici.</p>
-      <div id="taper-display"></div>
-      <div class="actions" style="margin-top:12px">
-        <button class="btn btn-secondary" id="btn-edit-taper">Modifier le schéma</button>
-      </div>
-    </div>
-
-    <div class="settings-section">
       <h3>Doses habituelles</h3>
       <p class="help">Valeurs pré-remplies à chaque saisie (modifiables au cas par cas).</p>
       <div id="defaults-display"></div>
@@ -460,7 +451,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.5</footer>
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.6</footer>
 
 </div>
 
@@ -480,7 +471,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.6.5';
+const VERSION = '1.6.6';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -714,7 +705,7 @@ function showView(name){
   if(name === 'history') renderHistory();
   if(name === 'stats') renderStats();
   if(name === 'settings') renderSettings();
-  document.getElementById('fab-quicknote').style.display = (name === 'entry' || name === 'edit-day') ? 'none' : 'flex';
+  document.getElementById('fab-quicknote').style.display = (name === 'entry' || name === 'edit-day' || name === 'history') ? 'none' : 'flex';
 }
 
 /* ============================================================
@@ -941,7 +932,7 @@ function blankEntry(date){
     note_morning: '',
     weight_kg: null,
     // Session soir
-    paroxetine_mg: suggestedParoxetine(date),
+    paroxetine_mg: 0, // traitement termine : plus de saisie, champ conserve pour l'historique
     mianserine_mg: state.data.settings.defaults.mianserine_mg,
     oxazepam_mg: 0,
     energy: 5,
@@ -1257,21 +1248,10 @@ function buildStep(step){
   }
 
   if(step === 'meds'){
-    const w = stepWrap(idx, "Doses prises aujourd'hui", "Pré-rempli selon ton schéma. Modifiable.");
-    const sug = suggestedParoxetine(d.date);
+    const w = stepWrap(idx, "Doses prises aujourd'hui", "Modifiable au cas par cas.");
     const grid = document.createElement('div');
     grid.className = 'meds-grid';
     grid.innerHTML = `
-      <div class="med-row">
-        <div class="name"><span>Paroxétine</span>${sug !== d.paroxetine_mg ? '' : '<span class="suggested">selon schéma</span>'}</div>
-        <div class="desc">Suggestion du jour : ${sug} mg</div>
-        <div class="num-input">
-          <button onclick="medAdjust('paroxetine_mg',-5)">−</button>
-          <input type="number" id="m-parox" value="${d.paroxetine_mg}" min="0" step="2.5">
-          <span class="unit">mg</span>
-          <button onclick="medAdjust('paroxetine_mg',5)">+</button>
-        </div>
-      </div>
       <div class="med-row">
         <div class="name"><span>Miansérine</span></div>
         <div class="desc">Au coucher</div>
@@ -1295,7 +1275,6 @@ function buildStep(step){
     `;
     w.appendChild(grid);
     setTimeout(()=>{
-      document.getElementById('m-parox').oninput = e=>{ d.paroxetine_mg = parseFloat(e.target.value)||0; };
       document.getElementById('m-mian').oninput = e=>{ d.mianserine_mg = parseFloat(e.target.value)||0; };
       document.getElementById('m-oxa').oninput = e=>{ d.oxazepam_mg = parseFloat(e.target.value)||0; };
     },0);
@@ -1777,7 +1756,6 @@ if(step === 'positive_feelings'){
     } else {
       rows = [
         ['Date', formatDate(d.date)],
-        ['Paroxétine', `${d.paroxetine_mg} mg`],
         ['Miansérine', `${d.mianserine_mg} mg`],
         ['Oxazépam', `${d.oxazepam_mg} mg`],
         ['Énergie globale', `${d.energy}/10`],
@@ -2002,7 +1980,7 @@ function formatStepValue(e, step){
     case 'energy_morning': return e.energy_morning != null ? `${e.energy_morning}/10` : dash;
     case 'weight': return e.weight_kg != null ? `${e.weight_kg} kg` : dash;
     case 'note_morning': return e.note_morning ? `"${e.note_morning.slice(0,35)}${e.note_morning.length>35?'…':''}"` : dash;
-    case 'meds': return `Parox. ${e.paroxetine_mg}mg · Mians. ${e.mianserine_mg}mg · Oxa. ${e.oxazepam_mg}mg`;
+    case 'meds': return `${e.paroxetine_mg ? 'Parox. ' + e.paroxetine_mg + 'mg · ' : ''}Mians. ${e.mianserine_mg}mg · Oxa. ${e.oxazepam_mg}mg`;
     case 'energy': return e.energy != null ? `${e.energy}/10` : dash;
     case 'anxiety': return e.anxiety != null ? `${e.anxiety}/10` : dash;
     case 'brain_fog': return e.brain_fog != null ? `${e.brain_fog}/10` : dash;
@@ -2922,16 +2900,6 @@ function renderSkinPicker(){
 }
 
 function renderSettings(){
-  // Taper display
-  const td = document.getElementById('taper-display');
-  const tapers = state.data.settings.paroxetine_taper;
-  td.innerHTML = tapers.map(t => `
-    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">
-      ${t.from || '...'} → ${t.to || 'fin'} : <strong style="color:var(--text)">${t.mg} mg</strong>
-      ${t.mode === 'every_other_day' ? ' (1 jour sur 2)' : ''}
-    </div>
-  `).join('');
-
   // Defaults display
   const dd = document.getElementById('defaults-display');
   const def = state.data.settings.defaults;
@@ -3730,7 +3698,6 @@ function init(){
   // Settings buttons
   document.getElementById('edit-day-back').addEventListener('click', () => showView('history'));
   document.getElementById('history-search').addEventListener('input', () => renderHistory());
-  document.getElementById('btn-edit-taper').addEventListener('click', editTaper);
   document.getElementById('btn-edit-defaults').addEventListener('click', editDefaults);
   document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
   document.getElementById('btn-toggle-notif').addEventListener('click', toggleNotifications);
