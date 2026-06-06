@@ -451,7 +451,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.6</footer>
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.7</footer>
 
 </div>
 
@@ -471,7 +471,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.6.6';
+const VERSION = '1.6.7';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -508,6 +508,16 @@ function loadData(){
     if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
     if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
+    // Migration ponctuelle : tags d'activités renommés (idempotent, sans doublon)
+    const TAG_RENAMES = {'Hyperactivité': 'Hyperactif'};
+    let _renamed = false;
+    (state.data.entries || []).forEach(en => {
+      if(Array.isArray(en.activities) && en.activities.some(a => TAG_RENAMES[a])){
+        en.activities = [...new Set(en.activities.map(a => TAG_RENAMES[a] || a))];
+        _renamed = true;
+      }
+    });
+    if(_renamed) saveData();
   }catch(e){
     console.error('Corrupted data, resetting', e);
     state.data = defaultData();
@@ -583,7 +593,7 @@ const FIELD_DEFS = {
   suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
   rgo: {type:'boolean', label:"RGO présent"},
   rgo_intensity: {type:'integer-0-10', label:"Intensité du RGO si présent"},
-  side_effects: {type:'array-enum', values:['asthenie','bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','diarrhee','eruption_cutanee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','somnolence','tremblements','vertiges','irritabilite','autre'], label:"Ressentis négatifs de la journée"},
+  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
   side_effects_other: {type:'text', label:"Précision si 'autre' coché"},
   positive_feelings: {type:'array-enum', label:"Ressentis positifs de la journée"},
   cafes_count: {type:'integer-0+', label:"Nombre de cafés dans la journée"},
@@ -638,6 +648,7 @@ const SIDE_EFFECT_LABELS = {
   constipation: 'Constipation',
   cordes_vocales: 'Cordes vocales altérées',
   courbatures: 'Courbatures',
+  desespoir_profond: 'Désespoir Profond',
   diarrhee: 'Diarrhée',
   eruption_cutanee: 'Éruption cutanée',
   fatigue_generale: 'Fatigue générale',
@@ -653,9 +664,11 @@ const SIDE_EFFECT_LABELS = {
   somnolence: 'Somnolence matinale',
   tremblements: 'Tremblements',
   vertiges: 'Vertiges',
-  irritabilite: 'Irritabilité',
-  autre: 'Autre'
+  irritabilite: 'Irritabilité'
 };
+
+// Tags retirés de la saisie mais conservés ici pour l'affichage des anciennes entrées
+const SIDE_EFFECT_HIDDEN = ['asthenie', 'eruption_cutanee', 'somnolence'];
 
 const SKINS = {
   minuit:    { name:'Minuit',     desc:'Bleu nuit · Teal',       bg:'#0f1419',bg2:'#161c23',bg3:'#1f2730',bg4:'#2a3441',border:'#2a3441',text:'#e4e7eb',dim:'#9aa5b1',faint:'#6b7785',accent:'#4ecdc4',accentDim:'#2a8a83',amber:'#f5a623',amberDim:'#a06e15' },
@@ -679,14 +692,14 @@ const STEP_LABELS = {
 };
 
 const ACTIVITY_CATEGORIES = [
-  { label: '💼 Travail & Formation', items: ['Administratif', 'Auto-Formation', 'Composition', 'Concert', 'Cours / Atelier', 'Enregistrement', 'Montage Vidéo', 'Productivité', 'Répétition', 'Stream'] },
-  { label: '🧠 Mental', items: ['Chill', 'Doom Scroll', 'Hyperactivité', 'Hyperfocus'] },
+  { label: '💼 Travail & Formation', items: ['Administratif', 'Auto-Formation', 'Composition', 'Concert', 'Cours / Atelier', 'Enregistrement', 'Montage Vidéo', 'Répétition', 'Stream'] },
+  { label: '🧠 Mental', items: ['Chill', 'Neutre', 'Hyperfocus', 'Hyperactif'] },
   { label: '🗣️ Social', items: ['Discussion Profonde', 'Interaction Sociale', 'Moment Intime'] },
   { label: '🏥 Santé', items: ['Dentiste', 'Médecin Généraliste', 'Psychiatre', 'Psychologue', 'RDV Médical'] },
   { label: '🏃 Mouvement', items: ['Activité Sportive', 'Manutention', 'Pas sorti', 'Sortie Nature', 'Sortie Ville', 'Tourisme'] },
   { label: '🏠 Quotidien', items: ['Cuisine', 'Rangement', 'Tâches Ménagères'] },
-  { label: '🚗 Déplacements', items: ['Trajet Train', 'Trajet Vélo', 'Trajet Voiture'] },
-  { label: '🎮 Loisirs', items: ['Détente Culturelle', 'Dev', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Ordinateur', 'Sortie Culturelle'] },
+  { label: '🚗 Déplacements', items: ['Trajet Bus', 'Trajet Train', 'Trajet Vélo', 'Trajet Voiture'] },
+  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Sortie Culturelle'] },
   { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Luca', 'Yann', 'Solitude'] }
 ];
 
@@ -1329,30 +1342,66 @@ function buildStep(step){
     const w = stepWrap(idx, "Ressentis négatifs de la journée", "Coche tous ceux qui s'appliquent.");
     const chips = document.createElement('div');
     chips.className = 'chips';
-    Object.entries(SIDE_EFFECT_LABELS).forEach(([k,v])=>{
-      const c = document.createElement('div');
-      c.className = 'chip' + (d.side_effects.includes(k) ? ' selected' : '');
-      c.textContent = v;
-      c.onclick = ()=>{
-        const i = d.side_effects.indexOf(k);
-        if(i >= 0) d.side_effects.splice(i, 1);
-        else d.side_effects.push(k);
-        c.classList.toggle('selected');
-        document.getElementById('se-other-wrap').style.display = d.side_effects.includes('autre') ? 'block' : 'none';
-      };
-      chips.appendChild(c);
-    });
+
+    const predefinedKeys = Object.keys(SIDE_EFFECT_LABELS);
+
+    const renderChips = () => {
+      chips.innerHTML = '';
+      // Chips prédéfinis (les tags masqués ne sont plus proposés)
+      Object.entries(SIDE_EFFECT_LABELS).forEach(([k,v])=>{
+        if(SIDE_EFFECT_HIDDEN.includes(k)) return;
+        const c = document.createElement('div');
+        c.className = 'chip' + (d.side_effects.includes(k) ? ' selected' : '');
+        c.textContent = v;
+        c.onclick = ()=>{
+          const i = d.side_effects.indexOf(k);
+          if(i >= 0) d.side_effects.splice(i, 1);
+          else d.side_effects.push(k);
+          c.classList.toggle('selected');
+        };
+        chips.appendChild(c);
+      });
+      // Chips libres (tags custom). L'ancien 'autre' d'une vieille entrée
+      // s'affiche avec son texte de précision et reste supprimable.
+      d.side_effects.filter(k => !predefinedKeys.includes(k) || SIDE_EFFECT_HIDDEN.includes(k)).forEach(tag => {
+        const c = document.createElement('div');
+        c.className = 'chip selected';
+        const labelTxt = (tag === 'autre') ? (d.side_effects_other || 'autre') : (SIDE_EFFECT_LABELS[tag] || tag);
+        c.innerHTML = escapeHtml(labelTxt) + ' <span style="margin-left:4px;opacity:.6">×</span>';
+        c.onclick = ()=>{
+          const i = d.side_effects.indexOf(tag);
+          if(i >= 0) d.side_effects.splice(i, 1);
+          renderChips();
+        };
+        chips.appendChild(c);
+      });
+    };
+    renderChips();
     w.appendChild(chips);
-    const otherWrap = document.createElement('div');
-    otherWrap.id = 'se-other-wrap';
-    otherWrap.style.marginTop = '16px';
-    otherWrap.style.display = d.side_effects.includes('autre') ? 'block' : 'none';
-    otherWrap.innerHTML = `<input type="text" placeholder="Précise..." id="se-other" value="${d.side_effects_other||''}">`;
-    w.appendChild(otherWrap);
-    setTimeout(()=>{
-      const inp = document.getElementById('se-other');
-      if(inp) inp.oninput = e=>{ d.side_effects_other = e.target.value; };
-    },0);
+
+    // Champ d'ajout de tag libre (même système que les ressentis positifs)
+    const addRow = document.createElement('div');
+    addRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'Ajouter un ressenti personnalisé...';
+    inp.style.flex = '1';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.style.cssText = 'padding:10px 16px;font-size:14px;white-space:nowrap';
+    btn.textContent = '+ Ajouter';
+    btn.onclick = ()=>{
+      const val = inp.value.trim();
+      if(val && !d.side_effects.includes(val)){
+        d.side_effects.push(val);
+        inp.value = '';
+        renderChips();
+      }
+    };
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); btn.click(); } });
+    addRow.appendChild(inp);
+    addRow.appendChild(btn);
+    w.appendChild(addRow);
     return w;
   }
 
@@ -1466,47 +1515,53 @@ if(step === 'positive_feelings'){
       });
       w.appendChild(chips);
     });
-    // Champ "Autre" avec parsing virgule
+    // Tags personnalisés (même système que les ressentis positifs).
+    // Les activités hors catégories (y compris l'ancien champ à virgules) apparaissent ici.
+    const PREDEF_ACTIVITIES = ACTIVITY_CATEGORIES.flatMap(c => c.items);
     const otherLabel = document.createElement('div');
     otherLabel.className = 'activities-cat-label';
     otherLabel.textContent = 'Autre';
     w.appendChild(otherLabel);
-    const otherInput = document.createElement('input');
-    otherInput.type = 'text';
-    otherInput.placeholder = 'Ex : Marche, Parapente, Escalade';
-    otherInput.value = d.activities_other || '';
-    w.appendChild(otherInput);
-    // Tags de prévisualisation
-    const otherPreview = document.createElement('div');
-    otherPreview.className = 'chips';
-    otherPreview.style.marginTop = '8px';
-    w.appendChild(otherPreview);
-    const syncOtherItems = (() => {
-      let prev = (d.activities_other || '').split(',').map(s=>s.trim()).filter(Boolean);
-      // Initialisation : s'assurer que les items déjà dans activities_other sont dans d.activities
-      prev.forEach(item => { if(!d.activities.includes(item)) d.activities.push(item); });
-      const render = (items) => {
-        otherPreview.innerHTML = '';
-        items.forEach(item => {
-          const chip = document.createElement('div');
-          chip.className = 'chip selected';
-          chip.style.cssText = 'pointer-events:none;opacity:.85';
-          chip.textContent = item;
-          otherPreview.appendChild(chip);
-        });
-      };
-      render(prev);
-      return (raw) => {
-        d.activities_other = raw;
-        // Retirer les anciens items "autre" de d.activities
-        prev.forEach(item => { const i = d.activities.indexOf(item); if(i>=0) d.activities.splice(i,1); });
-        // Parser les nouveaux items
-        prev = raw.split(',').map(s=>s.trim()).filter(Boolean);
-        prev.forEach(item => { if(!d.activities.includes(item)) d.activities.push(item); });
-        render(prev);
-      };
-    })();
-    otherInput.oninput = e => syncOtherItems(e.target.value);
+    const customChips = document.createElement('div');
+    customChips.className = 'chips';
+    w.appendChild(customChips);
+    const renderCustom = () => {
+      customChips.innerHTML = '';
+      d.activities.filter(a => !PREDEF_ACTIVITIES.includes(a)).forEach(tag => {
+        const c = document.createElement('div');
+        c.className = 'chip selected';
+        c.innerHTML = escapeHtml(tag) + ' <span style="margin-left:4px;opacity:.6">×</span>';
+        c.onclick = ()=>{
+          const i = d.activities.indexOf(tag);
+          if(i >= 0) d.activities.splice(i, 1);
+          renderCustom();
+        };
+        customChips.appendChild(c);
+      });
+    };
+    renderCustom();
+    const addRow = document.createElement('div');
+    addRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'Ajouter une activité personnalisée...';
+    inp.style.flex = '1';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.style.cssText = 'padding:10px 16px;font-size:14px;white-space:nowrap';
+    btn.textContent = '+ Ajouter';
+    btn.onclick = ()=>{
+      const val = inp.value.trim();
+      if(val && !d.activities.includes(val)){
+        d.activities.push(val);
+        inp.value = '';
+        renderCustom();
+      }
+    };
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); btn.click(); } });
+    addRow.appendChild(inp);
+    addRow.appendChild(btn);
+    w.appendChild(addRow);
     return w;
   }
 
@@ -1767,7 +1822,7 @@ if(step === 'positive_feelings'){
         ['RGO', d.rgo ? `Oui (${d.rgo_intensity}/10)` : 'Non']
       ];
       if(d.side_effects.length > 0){
-        const labels = d.side_effects.map(s => s === 'autre' ? (d.side_effects_other||'autre') : SIDE_EFFECT_LABELS[s]);
+        const labels = d.side_effects.map(s => s === 'autre' ? (d.side_effects_other||'autre') : (SIDE_EFFECT_LABELS[s] || s));
         rows.push(['Ressentis négatifs', labels.join(', ')]);
       }
       if(d.positive_feelings && d.positive_feelings.length > 0){
@@ -3105,7 +3160,7 @@ function exportMarkdown(){
       md += `- Idéations : ${suicidalLabel(e.suicidal)}${e.suicidal_note ? ' — ' + e.suicidal_note : ''}\n`;
       if(e.rgo) md += `- RGO : ${e.rgo_intensity}/10\n`;
       if(e.side_effects && e.side_effects.length > 0){
-        const labels = e.side_effects.map(s => s === 'autre' ? (e.side_effects_other||'autre') : SIDE_EFFECT_LABELS[s]);
+        const labels = e.side_effects.map(s => s === 'autre' ? (e.side_effects_other||'autre') : (SIDE_EFFECT_LABELS[s] || s));
         md += `- Ressentis négatifs : ${labels.join(', ')}\n`;
       }
       if(e.positive_feelings && e.positive_feelings.length > 0){
@@ -3760,16 +3815,23 @@ function init(){
   setTimeout(checkReminders, 3000);
   setInterval(checkReminders, 30 * 60 * 1000);
 
-  // PWA : service worker
-if('serviceWorker' in navigator){
+  // PWA : service worker, avec verification active des mises a jour
+  if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').then(reg => {
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker.addEventListener('statechange', () => {
-          if(newWorker.state === 'activated') window.location.reload();
-        });
+      // Verification au lancement, au retour au premier plan, et toutes les 30 min
+      reg.update().catch(()=>{});
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible') reg.update().catch(()=>{});
       });
+      setInterval(() => reg.update().catch(()=>{}), 30 * 60 * 1000);
     }).catch(()=>{});
+    // Des que le nouveau service worker prend le controle, recharger (une seule fois)
+    let _swReloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(_swReloaded) return;
+      _swReloaded = true;
+      window.location.reload();
+    });
   }
 }
 
