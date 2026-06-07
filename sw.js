@@ -1,4 +1,4 @@
-const CACHE_NAME = 'life-tracker-v8';
+const CACHE_NAME = 'life-tracker-v9';
 
 const ASSETS = [
   '/Mood-tracker/',
@@ -27,6 +27,8 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  // Synchro Gist : ne jamais servir l'API GitHub depuis le cache
+  if (event.request.url.includes('api.github.com') || event.request.url.includes('gist.githubusercontent.com')) return;
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;

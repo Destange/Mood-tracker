@@ -154,8 +154,8 @@ input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;bac
 .med-row .desc{font-size:12px;color:var(--text-faint);margin-bottom:12px}
 
 /* textarea / text input */
-textarea,input[type=text],input[type=time],input[type=date]{width:100%;padding:14px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:var(--radius-sm);transition:var(--t);font-size:16px}
-textarea:focus,input[type=text]:focus,input[type=time]:focus,input[type=date]:focus{border-color:var(--teal);outline:none}
+textarea,input[type=text],input[type=time],input[type=date],input[type=password]{width:100%;padding:14px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:var(--radius-sm);transition:var(--t);font-size:16px}
+textarea:focus,input[type=text]:focus,input[type=time]:focus,input[type=date]:focus,input[type=password]:focus{border-color:var(--teal);outline:none}
 textarea{min-height:100px;resize:vertical;font-family:inherit}
 
 /* recap */
@@ -442,15 +442,35 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
 
     <div class="settings-section">
+      <h3>Synchronisation multi-appareils</h3>
+      <p class="help">Synchronise tes données entre plusieurs appareils via un Gist privé sur ton compte GitHub. Colle un token classique avec la seule permission "gist". Les réglages (thème, rappels, doses) restent propres à chaque appareil.</p>
+      <div id="sync-status" style="font-size:13px;margin:8px 0"></div>
+      <div id="sync-setup">
+        <input type="password" id="sync-token" placeholder="Token GitHub (scope gist)" autocomplete="off">
+        <div class="actions" style="margin-top:8px">
+          <button class="btn btn-primary" id="btn-sync-enable">Activer la synchronisation</button>
+        </div>
+      </div>
+      <div id="sync-controls" style="display:none">
+        <div class="actions">
+          <button class="btn btn-primary" id="btn-sync-now">Synchroniser maintenant</button>
+        </div>
+        <div class="actions" style="margin-top:8px">
+          <button class="btn btn-secondary" id="btn-sync-disconnect">Déconnecter cet appareil</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Zone dangereuse</h3>
-      <p class="help">Supprime toutes les données stockées dans ce navigateur. Action irréversible.</p>
+      <p class="help">Supprime toutes les données stockées dans ce navigateur et déconnecte la synchronisation de cet appareil. La copie distante (Gist) n'est pas touchée. Action irréversible sur cet appareil.</p>
       <div class="actions">
         <button class="btn btn-danger" id="btn-reset">Tout effacer</button>
       </div>
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.8</footer>
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.7.0</footer>
 
 </div>
 
@@ -470,7 +490,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.6.8';
+const VERSION = '1.7.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -505,6 +525,13 @@ function loadData(){
     if(!state.data.settings) state.data.settings = defaultData().settings;
     if(!state.data.entries) state.data.entries = [];
     if(!state.data.quicknotes) state.data.quicknotes = [];
+    if(!state.data.deleted_days) state.data.deleted_days = [];
+    if(state.data.quicknotes_cleared_at === undefined) state.data.quicknotes_cleared_at = '';
+    // Horodatages par session (synchro) : reprise depuis created_at pour l'existant
+    (state.data.entries || []).forEach(en => {
+      if(en.morning_updated_at === undefined) en.morning_updated_at = en.morning_done ? (en.created_at || '') : '';
+      if(en.evening_updated_at === undefined) en.evening_updated_at = en.evening_done ? (en.created_at || '') : '';
+    });
     if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
     if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
@@ -528,6 +555,7 @@ function loadData(){
 function saveData(){
   if(!state.data) return;
   localStorage.setItem(STORAGE_DATA, JSON.stringify(state.data));
+  if(!_suppressSyncSchedule) scheduleSyncPush();
 }
 
 function defaultData(){
@@ -553,7 +581,9 @@ function defaultData(){
       }
     },
     entries: [],
-    quicknotes: []
+    quicknotes: [],
+    deleted_days: [],
+    quicknotes_cleared_at: ''
   };
 }
 
@@ -893,6 +923,98 @@ const EVENING_STEPS = [
   'date', 'meds', 'cafes_alcohol', 'rgo', 'social_media', 'side_effects', 'positive_feelings', 'energy', 'brain_fog', 'anxiety', 'activities', 'physical_activity', 'suicidal', 'blunting', 'notable_event', 'mood_evening', 'note', 'recap'
 ];
 
+/* ===== SYNC-PURE-BEGIN (logique de fusion, testée dans node) ===== */
+
+/* Listes officielles des champs par session (source unique : blankEntry) */
+const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
+const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+
+function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
+
+/* Copie le bloc d'une session (flag done + champs + horodatage) de source vers target */
+function copySessionBlock(target, source, session){
+  const fields = session === 'morning' ? MORNING_FIELDS : EVENING_FIELDS;
+  target[session + '_done'] = !!source[session + '_done'];
+  target[session + '_updated_at'] = _stamp(source, session + '_updated_at');
+  fields.forEach(f => {
+    const v = source[f];
+    if(v === undefined) return; // champ absent : on garde la valeur existante
+    target[f] = (typeof v === 'object' && v !== null) ? JSON.parse(JSON.stringify(v)) : v;
+  });
+}
+
+/* Horodatage de la derniere action sur une entree (pour le registre des suppressions) */
+function entryMaxStamp(e){
+  let m = _stamp(e, 'created_at');
+  if(_stamp(e, 'morning_updated_at') > m) m = _stamp(e, 'morning_updated_at');
+  if(_stamp(e, 'evening_updated_at') > m) m = _stamp(e, 'evening_updated_at');
+  return m;
+}
+
+/* Fusionne deux entrees de la meme date : bloc matin le plus recent + bloc soir le plus recent */
+function mergeEntryPair(a, b){
+  // Base : l'entree d'origine (created_at le plus ancien, depart par id pour rester deterministe)
+  const ca = _stamp(a, 'created_at'), cb = _stamp(b, 'created_at');
+  let base;
+  if(ca < cb) base = a;
+  else if(cb < ca) base = b;
+  else base = ((a.id || '') <= (b.id || '')) ? a : b;
+  const merged = JSON.parse(JSON.stringify(base));
+  ['morning', 'evening'].forEach(sess => {
+    const k = sess + '_updated_at';
+    let win;
+    if(_stamp(b, k) > _stamp(a, k)) win = b;
+    else if(_stamp(a, k) > _stamp(b, k)) win = a;
+    else win = base; // egalite : contenu identique en pratique, la base est deterministe
+    copySessionBlock(merged, win, sess);
+  });
+  return merged;
+}
+
+/* Fusion complete de deux jeux de donnees {entries, deleted_days, quicknotes, quicknotes_cleared_at} */
+function mergeTrackerData(local, remote){
+  const L = local || {}, R = remote || {};
+  // 1. Registre des suppressions : union par date, suppression la plus recente conservee
+  const tomb = {};
+  (L.deleted_days || []).concat(R.deleted_days || []).forEach(t => {
+    if(!t || !t.date) return;
+    const at = t.deleted_at || '';
+    if(tomb[t.date] === undefined || at > tomb[t.date]) tomb[t.date] = at;
+  });
+  // 2. Entrees indexees par date (les doublons internes d'une meme date sont fusionnes aussi)
+  const byDate = {};
+  const addAll = entries => (entries || []).forEach(e => {
+    if(!e || !e.date) return;
+    byDate[e.date] = byDate[e.date] ? mergeEntryPair(byDate[e.date], e) : JSON.parse(JSON.stringify(e));
+  });
+  addAll(L.entries);
+  addAll(R.entries);
+  // 3. Suppressions : le jour est ecarte sauf si une action plus recente l'a recree ou modifie
+  const entries = [];
+  Object.keys(byDate).sort().forEach(date => {
+    const e = byDate[date];
+    if(tomb[date] !== undefined && tomb[date] >= entryMaxStamp(e)) return;
+    entries.push(e);
+  });
+  const deleted_days = Object.keys(tomb).sort().map(d => ({date: d, deleted_at: tomb[d]}));
+  // 4. Notes rapides : union dedoublonnee, purge de celles anterieures au dernier nettoyage (validation soir)
+  const lc = L.quicknotes_cleared_at || '', rc = R.quicknotes_cleared_at || '';
+  const clearedAt = lc > rc ? lc : rc;
+  const seen = {};
+  const quicknotes = [];
+  (L.quicknotes || []).concat(R.quicknotes || []).forEach(n => {
+    if(!n || !n.text) return;
+    const key = (n.created_at || n.time || '') + '|' + n.text;
+    if(seen[key]) return;
+    seen[key] = true;
+    if(n.created_at && clearedAt && n.created_at <= clearedAt) return;
+    quicknotes.push(JSON.parse(JSON.stringify(n)));
+  });
+  quicknotes.sort((x, y) => (x.created_at || '').localeCompare(y.created_at || ''));
+  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt};
+}
+/* ===== SYNC-PURE-END ===== */
+
 function startEntry(editId, session){
   const today = logicalDateStr();
   if(editId){
@@ -931,6 +1053,8 @@ function blankEntry(date){
     created_at: new Date().toISOString(),
     morning_done: false,
     evening_done: false,
+    morning_updated_at: '',
+    evening_updated_at: '',
     // Session matin
     sleep_bedtime: '',
     sleep_waketime: '',
@@ -1877,6 +2001,7 @@ function escapeHtml(s){
 async function nextStep(){
   if(state.entryStep === state.entrySteps.length - 1){
     if(state.singleStepEdit){
+      state.entryDraft[state.entrySession === 'morning' ? 'morning_updated_at' : 'evening_updated_at'] = new Date().toISOString();
       const idx = state.data.entries.findIndex(e => e.id === state.entryDraft.id);
       if(idx >= 0) state.data.entries[idx] = JSON.parse(JSON.stringify(state.entryDraft));
       await saveData();
@@ -1886,20 +2011,21 @@ async function nextStep(){
       return;
     }
     const draft = state.entryDraft;
-    if(state.entrySession === 'morning') draft.morning_done = true;
-    else {
+    const _nowIso = new Date().toISOString();
+    if(state.entrySession === 'morning'){
+      draft.morning_done = true;
+      draft.morning_updated_at = _nowIso;
+    } else {
       draft.evening_done = true;
+      draft.evening_updated_at = _nowIso;
       state.data.quicknotes = [];
+      state.data.quicknotes_cleared_at = _nowIso;
     }
     // Anti-doublon : si la date a été modifiée, fusionner avec l'entrée existante pour cette date
     const existingByDate = state.data.entries.find(e => e.date === draft.date && e.id !== draft.id);
     if(existingByDate){
-      // Fusionner : les données de la session courante écrasent, les autres restent
-      if(state.entrySession === 'morning'){
-        Object.assign(existingByDate, {morning_done:true, sleep_bedtime:draft.sleep_bedtime, sleep_waketime:draft.sleep_waketime, sleep_duration_min:draft.sleep_duration_min, sleep_quality:draft.sleep_quality, wake_count:draft.wake_count, dream_quality:draft.dream_quality, nightmare:draft.nightmare, nightmare_note:draft.nightmare_note, mood_morning:draft.mood_morning, brain_fog_morning:draft.brain_fog_morning, energy_morning:draft.energy_morning, note_morning:draft.note_morning, weight_kg:draft.weight_kg});
-      } else {
-        Object.assign(existingByDate, {evening_done:true, paroxetine_mg:draft.paroxetine_mg, mianserine_mg:draft.mianserine_mg, oxazepam_mg:draft.oxazepam_mg, energy:draft.energy, anxiety:draft.anxiety, brain_fog:draft.brain_fog, blunting:draft.blunting, mood_evening:draft.mood_evening, suicidal:draft.suicidal, suicidal_note:draft.suicidal_note, rgo:draft.rgo, rgo_intensity:draft.rgo_intensity, side_effects:draft.side_effects, side_effects_other:draft.side_effects_other, positive_feelings:draft.positive_feelings, cafes_count:draft.cafes_count, alcohol_units:draft.alcohol_units, gaviscon_doses:draft.gaviscon_doses, pantoprazole_doses:draft.pantoprazole_doses, activities:draft.activities, activities_other:draft.activities_other, activities_note:draft.activities_note, physical_activity:draft.physical_activity, social_media_min:draft.social_media_min, notable_event:draft.notable_event, notable_event_text:draft.notable_event_text, free_note:draft.free_note});
-      }
+      // Fusionner : la session courante écrase (listes officielles de champs), l'autre session reste
+      copySessionBlock(existingByDate, draft, state.entrySession);
       // Supprimer l'ancien draft si c'était une nouvelle entrée ou une entrée séparée
       const oldIdx = state.data.entries.findIndex(e => e.id === draft.id);
       if(oldIdx >= 0 && state.data.entries[oldIdx].id !== existingByDate.id) state.data.entries.splice(oldIdx, 1);
@@ -2130,6 +2256,11 @@ function renderHistory(query){
 async function deleteEntry(id, date){
   if(!confirm(`Supprimer définitivement le ${formatDate(date)} et toutes ses données ?`)) return;
   state.data.entries = state.data.entries.filter(e => e.id !== id);
+  // Registre des suppressions : permet a la synchro de propager la suppression
+  if(!state.data.deleted_days) state.data.deleted_days = [];
+  const _delNow = new Date().toISOString();
+  const _delT = state.data.deleted_days.find(t => t.date === date);
+  if(_delT) _delT.deleted_at = _delNow; else state.data.deleted_days.push({date: date, deleted_at: _delNow});
   await saveData();
   renderHistory();
   toast('Entrée supprimée.', 'success');
@@ -2140,28 +2271,12 @@ async function deleteSession(id, session){
   if(!confirm(`Supprimer définitivement la ${label} de ce jour ? Les données de l'autre session sont conservées.`)) return;
   const entry = state.data.entries.find(e => e.id === id);
   if(!entry) return;
-  if(session === 'morning'){
-    Object.assign(entry, {
-      morning_done: false,
-      sleep_bedtime:'', sleep_waketime:'', sleep_duration_min:0,
-      sleep_quality:5, wake_count:0, dream_quality:null, nightmare:false, nightmare_note:'',
-      mood_morning:null, brain_fog_morning:5, energy_morning:5,
-      note_morning:'', weight_kg:null
-    });
-  } else {
-    const blank = blankEntry(entry.date);
-    Object.assign(entry, {
-      evening_done: false,
-      paroxetine_mg:blank.paroxetine_mg, mianserine_mg:blank.mianserine_mg, oxazepam_mg:0,
-      energy:5, anxiety:5, brain_fog:5, blunting:0, mood_evening:5,
-      suicidal:'aucune', suicidal_note:'', rgo:false, rgo_intensity:0,
-      side_effects:[], side_effects_other:'', positive_feelings:[],
-      cafes_count:0, alcohol_units:0, gaviscon_doses:0, pantoprazole_doses:0,
-      activities:[], activities_other:'', activities_note:'',
-      physical_activity:0, social_media_min:0,
-      notable_event:false, notable_event_text:'', free_note:''
-    });
-  }
+  // Remise a blanc via les listes officielles de champs + horodatage (la suppression se propage en synchro)
+  const blank = blankEntry(entry.date);
+  const fields = session === 'morning' ? MORNING_FIELDS : EVENING_FIELDS;
+  fields.forEach(f => { entry[f] = blank[f]; });
+  entry[session + '_done'] = false;
+  entry[session + '_updated_at'] = new Date().toISOString();
   await saveData();
   showEditDay(id);
   toast(`Session ${session === 'morning' ? 'matin' : 'soir'} supprimée.`, 'success');
@@ -3030,6 +3145,9 @@ function renderSettings(){
 
   // Skin picker
   renderSkinPicker();
+
+  // Synchronisation
+  updateSyncUI();
 }
 
 function editTaper(){
@@ -3115,7 +3233,8 @@ function exportJSON(){
     exported_at: new Date().toISOString(),
     field_definitions: FIELD_DEFS,
     settings: state.data.settings,
-    entries: state.data.entries
+    entries: state.data.entries,
+    deleted_days: state.data.deleted_days || []
   };
   const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type:'application/json'});
   download(blob, `tracker-export-${todayStr()}.json`);
@@ -3232,6 +3351,7 @@ async function importJSON(file){
     if(!obj.entries || !Array.isArray(obj.entries)) throw new Error('Format invalide');
     if(!confirm(`Importer ${obj.entries.length} entrées ? Cela écrasera les données actuelles.`)) return;
     state.data.entries = obj.entries;
+    if(Array.isArray(obj.deleted_days)) state.data.deleted_days = obj.deleted_days;
     if(obj.settings) state.data.settings = obj.settings;
     await saveData();
     toast('Import réussi.', 'success');
@@ -3741,12 +3861,232 @@ window.saveQuicknote = async function(){
   if(!state.data.quicknotes) state.data.quicknotes = [];
   const now = new Date();
   const time = now.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
-  state.data.quicknotes.push({time, text});
+  state.data.quicknotes.push({time, text, created_at: now.toISOString()});
   await saveData();
   closeModal();
   renderHome();
   toast('Note ajoutée.', 'success');
 };
+
+
+/* ============================================================
+   SYNC — client Gist GitHub (token scope gist, gist prive)
+   ============================================================ */
+
+const STORAGE_SYNC = 'tracker_sync_v1';      // {token, gist_id, last_sync, last_error} : local, jamais exporte
+const SYNC_BACKUP_KEY = 'tracker_backup_presync'; // copie de securite avant chaque application de fusion
+const SYNC_GIST_FILENAME = 'life-tracker-data.json';
+let _suppressSyncSchedule = false;
+let _syncTimer = null;
+let _syncInFlight = false;
+let _lastAutoSync = 0;
+
+function syncConfig(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_SYNC)) || {}; }catch(e){ return {}; }
+}
+function saveSyncConfig(cfg){ localStorage.setItem(STORAGE_SYNC, JSON.stringify(cfg)); }
+function syncEnabled(){ return !!syncConfig().token; }
+
+/* Donnees synchronisees : entrees + suppressions + quicknotes. Les settings restent locaux. */
+function syncPayloadFromData(d){
+  return mergeTrackerData(
+    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || ''},
+    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: ''}
+  );
+}
+
+async function gistFetch(path, options){
+  const cfg = syncConfig();
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try{
+    const opts = {
+      signal: ctrl.signal,
+      cache: 'no-store',
+      headers: {
+        'Authorization': 'Bearer ' + cfg.token,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      }
+    };
+    if(options && options.method) opts.method = options.method;
+    if(options && options.body) opts.body = options.body;
+    return await fetch('https://api.github.com' + path, opts);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/* Retrouve le gist par son nom de fichier, ou le cree (prive) s'il n'existe pas */
+async function syncDiscoverGist(){
+  const cfg = syncConfig();
+  if(cfg.gist_id){
+    const r = await gistFetch('/gists/' + cfg.gist_id);
+    if(r.ok) return cfg.gist_id;
+    if(r.status !== 404) throw new Error('GitHub ' + r.status);
+    delete cfg.gist_id;
+    saveSyncConfig(cfg);
+  }
+  let page = 1;
+  while(page <= 5){
+    const r = await gistFetch('/gists?per_page=100&page=' + page);
+    if(!r.ok) throw new Error(r.status === 401 ? 'Token invalide ou expiré' : 'GitHub ' + r.status);
+    const list = await r.json();
+    const found = list.find(g => g.files && g.files[SYNC_GIST_FILENAME]);
+    if(found){
+      const c = syncConfig();
+      c.gist_id = found.id;
+      saveSyncConfig(c);
+      return found.id;
+    }
+    if(list.length < 100) break;
+    page++;
+  }
+  const payload = syncPayloadFromData(state.data);
+  const r = await gistFetch('/gists', {method: 'POST', body: JSON.stringify({
+    description: 'Life Tracker : donnees synchronisees',
+    public: false,
+    files: {[SYNC_GIST_FILENAME]: {content: JSON.stringify(payload)}}
+  })});
+  if(!r.ok) throw new Error('GitHub ' + r.status + ' (création du gist)');
+  const g = await r.json();
+  const c = syncConfig();
+  c.gist_id = g.id;
+  saveSyncConfig(c);
+  return g.id;
+}
+
+async function syncReadRemote(gistId){
+  const r = await gistFetch('/gists/' + gistId);
+  if(!r.ok) throw new Error('GitHub ' + r.status + ' (lecture)');
+  const g = await r.json();
+  const f = g.files && g.files[SYNC_GIST_FILENAME];
+  if(!f) return null;
+  let content = f.content;
+  if(f.truncated && f.raw_url){
+    const rr = await fetch(f.raw_url, {cache: 'no-store'});
+    if(!rr.ok) throw new Error('GitHub ' + rr.status + ' (lecture raw)');
+    content = await rr.text();
+  }
+  try{ return JSON.parse(content); }catch(e){ return null; }
+}
+
+async function syncWriteRemote(gistId, payload){
+  const files = {};
+  files[SYNC_GIST_FILENAME] = {content: JSON.stringify(payload)};
+  const r = await gistFetch('/gists/' + gistId, {method: 'PATCH', body: JSON.stringify({files: files})});
+  if(!r.ok) throw new Error('GitHub ' + r.status + ' (écriture)');
+}
+
+/* Cycle complet : pull, fusion, application locale (avec sauvegarde avant), push si necessaire */
+async function syncNow(manual){
+  if(!syncEnabled() || _syncInFlight) return;
+  _syncInFlight = true;
+  _lastAutoSync = Date.now();
+  updateSyncUI('Synchronisation en cours');
+  try{
+    const gistId = await syncDiscoverGist();
+    const remoteRaw = await syncReadRemote(gistId);
+    const localPayload = syncPayloadFromData(state.data);
+    const remotePayload = remoteRaw ? syncPayloadFromData(remoteRaw) : null;
+    const merged = remotePayload ? mergeTrackerData(localPayload, remotePayload) : localPayload;
+    const mergedStr = JSON.stringify(merged);
+    if(mergedStr !== JSON.stringify(localPayload)){
+      // Sauvegarde de securite de l'etat local avant d'appliquer la fusion
+      try{ localStorage.setItem(SYNC_BACKUP_KEY, JSON.stringify({saved_at: new Date().toISOString(), data: state.data})); }catch(e){}
+      state.data.entries = merged.entries;
+      state.data.deleted_days = merged.deleted_days;
+      state.data.quicknotes = merged.quicknotes;
+      state.data.quicknotes_cleared_at = merged.quicknotes_cleared_at;
+      _suppressSyncSchedule = true;
+      try{ saveData(); } finally { _suppressSyncSchedule = false; }
+      refreshAfterSync();
+    }
+    if(!remotePayload || mergedStr !== JSON.stringify(remotePayload)){
+      await syncWriteRemote(gistId, merged);
+    }
+    const cfg = syncConfig();
+    cfg.last_sync = new Date().toISOString();
+    delete cfg.last_error;
+    saveSyncConfig(cfg);
+    updateSyncUI();
+    if(manual) toast('Synchronisation réussie.', 'success');
+  }catch(e){
+    console.error('Sync', e);
+    const cfg = syncConfig();
+    cfg.last_error = (e && e.name === 'AbortError') ? 'Délai dépassé' : ((e && e.message) || 'Erreur réseau');
+    saveSyncConfig(cfg);
+    updateSyncUI();
+    if(manual) toast('Échec de la synchronisation : ' + cfg.last_error, 'error');
+  } finally {
+    _syncInFlight = false;
+  }
+}
+
+/* Push differe apres chaque sauvegarde (4 s), precede d'un pull+fusion dans syncNow */
+function scheduleSyncPush(){
+  if(!syncEnabled()) return;
+  if(_syncTimer) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => { _syncTimer = null; syncNow(false); }, 4000);
+}
+
+/* Re-rendu de la vue courante apres application d'une fusion (le draft de saisie n'est pas touche) */
+function refreshAfterSync(){
+  const v = state.currentView;
+  if(v === 'home') renderHome();
+  else if(v === 'history') renderHistory();
+  else if(v === 'stats') renderStats();
+  else if(v === 'edit-day'){
+    const still = state.data.entries.find(e => e.id === state.editingEntryId);
+    if(still) renderEditDayView(still);
+    else showView('history');
+  }
+}
+
+function updateSyncUI(busyText){
+  const status = document.getElementById('sync-status');
+  if(!status) return;
+  const cfg = syncConfig();
+  const on = !!cfg.token;
+  const setup = document.getElementById('sync-setup');
+  const controls = document.getElementById('sync-controls');
+  if(setup) setup.style.display = on ? 'none' : 'block';
+  if(controls) controls.style.display = on ? 'block' : 'none';
+  if(!on){ status.innerHTML = ''; return; }
+  let txt;
+  if(busyText) txt = '⏳ ' + escapeHtml(busyText) + '…';
+  else if(cfg.last_error) txt = '⚠️ Dernière synchro en échec : ' + escapeHtml(cfg.last_error);
+  else if(cfg.last_sync) txt = '✅ Dernière synchro : ' + escapeHtml(new Date(cfg.last_sync).toLocaleString('fr-FR'));
+  else txt = 'Synchronisation activée, pas encore synchronisé.';
+  status.innerHTML = txt;
+  const btn = document.getElementById('btn-sync-now');
+  if(btn) btn.disabled = !!busyText;
+}
+
+async function enableSync(){
+  const inp = document.getElementById('sync-token');
+  const token = (inp ? inp.value : '').trim();
+  if(!token){ toast('Colle d\'abord ton token GitHub.', 'error'); return; }
+  saveSyncConfig({token: token});
+  updateSyncUI('Vérification du token');
+  try{
+    const r = await gistFetch('/gists?per_page=1');
+    if(!r.ok) throw new Error(r.status === 401 ? 'Token invalide' : 'GitHub ' + r.status);
+    if(inp) inp.value = '';
+    await syncNow(true);
+  }catch(e){
+    localStorage.removeItem(STORAGE_SYNC);
+    updateSyncUI();
+    toast('Activation impossible : ' + ((e && e.message) || 'erreur réseau'), 'error');
+  }
+}
+
+function disconnectSync(){
+  if(!confirm('Déconnecter la synchronisation sur cet appareil ? Les données locales et la copie distante sont conservées.')) return;
+  localStorage.removeItem(STORAGE_SYNC);
+  updateSyncUI();
+  toast('Synchronisation déconnectée sur cet appareil.', 'success');
+}
 
 /* ============================================================
    INIT
@@ -3791,6 +4131,9 @@ function init(){
   document.getElementById('btn-export-json').addEventListener('click', exportJSON);
   document.getElementById('btn-export-csv').addEventListener('click', exportCSV);
   document.getElementById('btn-export-md').addEventListener('click', exportMarkdown);
+  document.getElementById('btn-sync-enable').addEventListener('click', enableSync);
+  document.getElementById('btn-sync-now').addEventListener('click', () => syncNow(true));
+  document.getElementById('btn-sync-disconnect').addEventListener('click', disconnectSync);
   document.getElementById('btn-import').addEventListener('click', () => document.getElementById('import-file').click());
   document.getElementById('import-file').addEventListener('change', e => {
     if(e.target.files[0]) importJSON(e.target.files[0]);
@@ -3799,6 +4142,8 @@ function init(){
     if(confirm("Effacer définitivement toutes les données ? Cette action est irréversible.")){
       if(confirm("Vraiment sûr ? Aucune récupération possible.")){
         localStorage.removeItem(STORAGE_DATA);
+        localStorage.removeItem(STORAGE_SYNC);
+        localStorage.removeItem(SYNC_BACKUP_KEY);
         location.reload();
       }
     }
@@ -3846,6 +4191,14 @@ function init(){
   // Rappels : vérification au lancement + toutes les 30 min
   setTimeout(checkReminders, 3000);
   setInterval(checkReminders, 30 * 60 * 1000);
+
+  // Synchronisation : au lancement, puis au retour au premier plan (60 s mini entre deux)
+  if(syncEnabled()) setTimeout(() => syncNow(false), 1500);
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible' && syncEnabled() && Date.now() - _lastAutoSync > 60000){
+      syncNow(false);
+    }
+  });
 
   // PWA : service worker, avec verification active des mises a jour
   if('serviceWorker' in navigator){
