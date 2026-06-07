@@ -195,7 +195,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .heatmap-month{}
 .heatmap-month-label{font-size:12px;color:var(--text-faint);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
 .heatmap-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.heatmap-cell{aspect-ratio:1;border-radius:3px;background:var(--bg-3);position:relative;cursor:pointer;transition:var(--t)}
+.heatmap-cell{aspect-ratio:1;border-radius:3px;background:var(--bg-3);position:relative;cursor:pointer;transition:var(--t);display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;overflow:hidden;user-select:none}
 .heatmap-cell:hover{transform:scale(1.15);z-index:5}
 .heatmap-cell.empty{background:var(--bg-3);opacity:.4}
 .heatmap-cell.future{background:transparent;opacity:0}
@@ -329,7 +329,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
       <button class="home-card primary" id="card-entry-morning">
         <div class="label" id="morning-card-label">Matin</div>
         <div class="title" id="morning-card-title">Session réveil</div>
-        <div class="desc" id="morning-card-desc">Sommeil · humeur · énergie</div>
+        <div class="desc" id="morning-card-desc">Sommeil · rêves · note</div>
       </button>
       <button class="home-card" id="card-entry-evening">
         <div class="label" id="evening-card-label">Soir</div>
@@ -344,7 +344,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
       <button class="home-card" id="card-stats">
         <div class="label">Visualisations</div>
         <div class="title">Statistiques</div>
-        <div class="desc">Courbes, heatmap, corrélations</div>
+        <div class="desc">Courbes, heatmap, ressentis</div>
       </button>
       <button class="home-card full" id="card-settings">
         <div class="label">Configuration</div>
@@ -388,7 +388,6 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
       <button class="stats-tab active" data-tab="curves">Courbes</button>
       <button class="stats-tab" data-tab="heatmap">Heatmap</button>
       <button class="stats-tab" data-tab="meds">Doses</button>
-      <button class="stats-tab" data-tab="corr">Corrélations</button>
       <button class="stats-tab" data-tab="side_effects">Ressentis nég.</button>
       <button class="stats-tab" data-tab="positive_feelings">Ress. pos.</button>
       <button class="stats-tab" data-tab="activities_impact">Activités</button>
@@ -451,7 +450,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.7</footer>
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.6.8</footer>
 
 </div>
 
@@ -471,7 +470,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.6.7';
+const VERSION = '1.6.8';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -485,6 +484,7 @@ const state = {
   editingEntryId: null,
   singleStepEdit: false,
   statsTab: 'curves',
+  curvesPeriod: 30, // 7/14/30/90 jours, 0 = tout
   heatmapMetric: 'mood_evening',
   charts: {}
 };
@@ -509,7 +509,7 @@ function loadData(){
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
     if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
     // Migration ponctuelle : tags d'activités renommés (idempotent, sans doublon)
-    const TAG_RENAMES = {'Hyperactivité': 'Hyperactif'};
+    const TAG_RENAMES = {'Hyperactivité': 'Hyperactif', 'Trajet Bus': 'Bus', 'Trajet Train': 'Train', 'Trajet Vélo': 'Vélo', 'Trajet Voiture': 'Voiture'};
     let _renamed = false;
     (state.data.entries || []).forEach(en => {
       if(Array.isArray(en.activities) && en.activities.some(a => TAG_RENAMES[a])){
@@ -619,24 +619,25 @@ const POSITIVE_FEELING_LABELS = {
   confiant:        'Confiant',
   connecte:        'Connecté',
   creatif:         'Créatif',
+  efficace:        'Efficace',
   en_forme:        'En forme',
   epanoui:         'Épanoui',
   espoir:          'Espoir',
   excitation:      'Excitation',
   fier:            'Fier',
   fluide:          'Fluide',
-  gratitude:       'Reconnaissant',
   heureux:         'Heureux',
   inspire:         'Inspiré',
   joie:            'Joie',
   leger:           'Léger',
   lucide:          'Lucide',
   motive:          'Motivé',
+  positif:         'Positif',
+  gratitude:       'Reconnaissant',
   serenite:        'Serein',
   utile:           'Utile',
   vivant:          'Vivant',
-  zoomies:         'Zoomies',
-  positif:         'Positif'
+  zoomies:         'Zoomies'
 };
 
 const SIDE_EFFECT_LABELS = {
@@ -679,7 +680,7 @@ const SKINS = {
   acier:     { name:'Acier',      desc:'Bleu marine · Azur',      bg:'#09101e',bg2:'#0d1628',bg3:'#121e36',bg4:'#182842',border:'#1e3355',text:'#dceeff',dim:'#7ba8d0',faint:'#4d7a9a',accent:'#4a9eff',accentDim:'#2a60b0',amber:'#f5c842',amberDim:'#a08a15' }
 };
 
-const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','mood_morning','weight','note_morning'];
+const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','weight','note_morning'];
 const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','social_media','side_effects','positive_feelings','energy','brain_fog','anxiety','activities','physical_activity','suicidal','blunting','notable_event','mood_evening','note'];
 const STEP_LABELS = {
   sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
@@ -698,8 +699,8 @@ const ACTIVITY_CATEGORIES = [
   { label: '🏥 Santé', items: ['Dentiste', 'Médecin Généraliste', 'Psychiatre', 'Psychologue', 'RDV Médical'] },
   { label: '🏃 Mouvement', items: ['Activité Sportive', 'Manutention', 'Pas sorti', 'Sortie Nature', 'Sortie Ville', 'Tourisme'] },
   { label: '🏠 Quotidien', items: ['Cuisine', 'Rangement', 'Tâches Ménagères'] },
-  { label: '🚗 Déplacements', items: ['Trajet Bus', 'Trajet Train', 'Trajet Vélo', 'Trajet Voiture'] },
-  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Sortie Culturelle'] },
+  { label: '🚗 Déplacements', items: ['Bus', 'Train', 'Vélo', 'Voiture'] },
+  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Shopping', 'Sortie Culturelle'] },
   { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Luca', 'Yann', 'Solitude'] }
 ];
 
@@ -851,7 +852,7 @@ function renderHome(){
   const eveningBtn = document.getElementById('card-entry-evening');
 
   document.getElementById('morning-card-title').textContent = morningDone ? 'Réveil — ✅' : '☀️ Session réveil';
-  document.getElementById('morning-card-desc').textContent  = morningDone ? 'Modifier' : 'Sommeil · humeur · énergie';
+  document.getElementById('morning-card-desc').textContent  = morningDone ? 'Modifier' : 'Sommeil · rêves · note';
   morningBtn.classList.toggle('primary', !morningDone);
   morningBtn.classList.toggle('session-done', morningDone);
 
@@ -886,7 +887,7 @@ function logicalDateStr(){
    ============================================================ */
 
 const MORNING_STEPS = [
-  'date', 'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'mood_morning', 'weight', 'note_morning', 'recap'
+  'date', 'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'weight', 'note_morning', 'recap'
 ];
 const EVENING_STEPS = [
   'date', 'meds', 'cafes_alcohol', 'rgo', 'social_media', 'side_effects', 'positive_feelings', 'energy', 'brain_fog', 'anxiety', 'activities', 'physical_activity', 'suicidal', 'blunting', 'notable_event', 'mood_evening', 'note', 'recap'
@@ -939,7 +940,7 @@ function blankEntry(date){
     dream_quality: null,
     nightmare: false,
     nightmare_note: '',
-    mood_morning: 5,
+    mood_morning: null, // question retiree : champ conserve pour l'historique
     brain_fog_morning: 0,
     energy_morning: 5,
     note_morning: '',
@@ -1799,8 +1800,7 @@ if(step === 'positive_feelings'){
       rows = [
         ['Date', formatDate(d.date)],
         ['Horaires', (d.sleep_bedtime||'?')+' → '+(d.sleep_waketime||'?')+(durH ? ` (${durH})` : '')],
-        ['Sommeil', `${d.sleep_quality}/10 — ${d.wake_count} réveil${d.wake_count>1?'s':''}`],
-        ['Humeur réveil', `${d.mood_morning}/10`]
+        ['Sommeil', `${d.sleep_quality}/10 — ${d.wake_count} réveil${d.wake_count>1?'s':''}`]
       ];
       if(d.dream_quality != null){
         const dqLabel = ({0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'})[d.dream_quality] || '—';
@@ -2145,7 +2145,7 @@ async function deleteSession(id, session){
       morning_done: false,
       sleep_bedtime:'', sleep_waketime:'', sleep_duration_min:0,
       sleep_quality:5, wake_count:0, dream_quality:null, nightmare:false, nightmare_note:'',
-      mood_morning:5, brain_fog_morning:5, energy_morning:5,
+      mood_morning:null, brain_fog_morning:5, energy_morning:5,
       note_morning:'', weight_kg:null
     });
   } else {
@@ -2195,6 +2195,14 @@ function renderStats(){
 }
 
 function renderCurves(c, entries){
+  // Filtre de période
+  const PERIODS = [[7,'7 j'],[14,'14 j'],[30,'1 mois'],[90,'3 mois'],[0,'Tout']];
+  if(state.curvesPeriod){
+    const cut = new Date();
+    cut.setDate(cut.getDate() - state.curvesPeriod);
+    const cstr = cut.getFullYear() + '-' + String(cut.getMonth()+1).padStart(2,'0') + '-' + String(cut.getDate()).padStart(2,'0');
+    entries = entries.filter(e => e.date >= cstr);
+  }
   // Normalisation durée sommeil → 0-10
   // 7.5h = 5 (norme), chaque heure d'écart = ±2 pts
   // <7h : déficit, >9h : hypersomnie
@@ -2214,9 +2222,17 @@ function renderCurves(c, entries){
       <span style="font-size:12px;color:var(--text-faint)">Clique sur la légende pour masquer / afficher</span>
       <button id="curves-toggle-all" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;background:var(--bg-3);border:1px solid var(--border);color:var(--text-faint);cursor:pointer;transition:var(--t)" title="Tout masquer pour repartir de zéro">Tout masquer</button>
     </div>
+    <div class="heatmap-metric-selector" id="curves-period">${PERIODS.map(([n,lab]) => `<button class="heatmap-metric-btn${state.curvesPeriod === n ? ' active' : ''}" data-period="${n}">${lab}</button>`).join('')}</div>
     <div class="stats-card"><div class="chart-wrap tall"><canvas id="chart-curves"></canvas></div></div>
   `;
   c.appendChild(sec);
+
+  sec.querySelector('#curves-period').addEventListener('click', e => {
+    const btn = e.target.closest('[data-period]');
+    if(!btn) return;
+    state.curvesPeriod = parseInt(btn.dataset.period, 10);
+    renderStats();
+  });
 
   const ctx = document.getElementById('chart-curves').getContext('2d');
   const labels = entries.map(e => e.date.slice(5));
@@ -2226,17 +2242,18 @@ function renderCurves(c, entries){
     data: {
       labels,
       datasets: [
-        {label:'Humeur globale',       data: entries.map(e=>e.mood_evening),        borderColor:'#4ecdc4', backgroundColor:'rgba(78,205,196,.1)',   tension:.3, fill:false, pointRadius:3},
-        {label:'Qualité sommeil',      data: entries.map(e=>e.sleep_quality),        borderColor:'#f5a623', backgroundColor:'rgba(245,166,35,.1)',  tension:.3, fill:false, pointRadius:3},
-        {label:'Anxiété',              data: entries.map(e=>e.anxiety),              borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)',    tension:.3, fill:false, pointRadius:3},
-        {label:'Énergie globale',      data: entries.map(e=>e.energy),               borderColor:'#9b6dff', backgroundColor:'rgba(155,109,255,.1)', tension:.3, fill:false, pointRadius:3},
-        {label:'Sensibilité émot.',    data: entries.map(e=>bluntNorm(e.blunting)),   borderColor:'#6b7785', backgroundColor:'rgba(107,119,133,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[4,4]},
-        {label:'Durée sommeil',        data: entries.map(e=>sleepNorm(e.sleep_duration_min)), borderColor:'#5dbb63', backgroundColor:'rgba(93,187,99,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[2,5]},
-        {label:'Brouillard (réveil)',  data: entries.map(e=>e.brain_fog_morning),    borderColor:'#b0c4de', backgroundColor:'rgba(176,196,222,.1)',  tension:.3, fill:false, pointRadius:3, borderDash:[6,3]},
-        {label:'Brouillard (journée)', data: entries.map(e=>e.brain_fog),            borderColor:'#7a92aa', backgroundColor:'rgba(122,146,170,.1)',  tension:.3, fill:false, pointRadius:3, borderDash:[3,3]},
-        {label:'Activité physique',  data: entries.map(e=>e.physical_activity!=null ? e.physical_activity/3*10 : null), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[5,3], hidden:true},
-        {label:'Cafés (normalisé)',  data: entries.map(e=>e.cafes_count!=null ? Math.min(10,e.cafes_count/5*10) : null), borderColor:'#c8860a', backgroundColor:'rgba(200,134,10,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[2,4], hidden:true},
-        {label:'Réseaux sociaux',    data: entries.map(e=>e.social_media_min!=null ? Math.min(10,e.social_media_min/180*10) : null), borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', tension:.3, fill:false, pointRadius:2, borderDash:[1,3], hidden:true}
+        // Courbes principales : traits continus, visibles par defaut
+        {label:'Humeur globale',  data: entries.map(e=>e.mood_evening), borderColor:'#4ecdc4', backgroundColor:'rgba(78,205,196,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Énergie globale', data: entries.map(e=>e.energy), borderColor:'#9b6dff', backgroundColor:'rgba(155,109,255,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Durée sommeil',   data: entries.map(e=>sleepNorm(e.sleep_duration_min)), borderColor:'#f5a623', backgroundColor:'rgba(245,166,35,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Anxiété',         data: entries.map(e=>e.anxiety), borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Brouillard',      data: entries.map(e=>e.brain_fog), borderColor:'#7a92aa', backgroundColor:'rgba(122,146,170,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Miansérine',      data: entries.map(e=>(e.evening_done && e.mianserine_mg != null) ? Math.min(10, e.mianserine_mg / 6) : null), borderColor:'#5dbb63', backgroundColor:'rgba(93,187,99,.1)', tension:.3, fill:false, pointRadius:3},
+        // Courbes secondaires : pointilles, masquees par defaut
+        {label:'Sensibilité émot.', data: entries.map(e=>bluntNorm(e.blunting)), borderColor:'#6b7785', backgroundColor:'rgba(107,119,133,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[4,4], hidden:true},
+        {label:'Activité physique', data: entries.map(e=>e.physical_activity!=null ? e.physical_activity/3*10 : null), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[5,3], hidden:true},
+        {label:'Cafés (normalisé)', data: entries.map(e=>e.cafes_count!=null ? Math.min(10,e.cafes_count/5*10) : null), borderColor:'#c8860a', backgroundColor:'rgba(200,134,10,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[2,4], hidden:true},
+        {label:'Réseaux sociaux',   data: entries.map(e=>e.social_media_min!=null ? Math.min(10,e.social_media_min/180*10) : null), borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', tension:.3, fill:false, pointRadius:2, borderDash:[1,3], hidden:true}
       ]
     },
     options: {
@@ -2267,8 +2284,8 @@ function renderCurves(c, entries){
                 const raw = e.blunting != null ? (e.blunting >= 0 ? '+' : '') + e.blunting : '—';
                 return `Sensibilité émot. : ${raw} → score ${v}/10`;
               }
-              if(ds === 'Brouillard (réveil)') return `Brouillard réveil : ${v != null ? v : '—'}/10`;
-              if(ds === 'Brouillard (journée)') return `Brouillard journée : ${v != null ? v : '—'}/10`;
+              if(ds === 'Brouillard') return `Brouillard : ${v != null ? v : '—'}/10`;
+              if(ds === 'Miansérine') return `Miansérine : ${(e.evening_done && e.mianserine_mg != null) ? e.mianserine_mg + ' mg' : '—'}`;
               if(ds === 'Activité physique'){ const raw = e.physical_activity; return `Activité physique : ${raw != null ? raw+'/3' : '—'} → score ${v != null ? v.toFixed(1) : '—'}/10`; }
               if(ds === 'Cafés (normalisé)'){ return `Cafés : ${e.cafes_count ?? '—'} → score ${v != null ? v.toFixed(1) : '—'}/10`; }
               if(ds === 'Réseaux sociaux'){ const t=e.social_media_min||0; return `Réseaux sociaux : ${Math.floor(t/60)}h${String(t%60).padStart(2,'0')} → score ${v != null ? v.toFixed(1) : '—'}/10`; }
@@ -2314,11 +2331,27 @@ function chartOpts(min, max){
 }
 
 const HEATMAP_METRICS = [
-  { key: 'mood_evening',    label: 'Humeur',    legendLow: 'basse',   legendHigh: 'haute',   colorFn: (v) => moodColor(v),                                                      titleFn: (v) => `humeur ${v}/10`    },
-  { key: 'sleep_quality',   label: 'Sommeil',   legendLow: 'mauvais', legendHigh: 'bon',     colorFn: (v) => heatColor(v, 0, 10, '#0d1b6e', '#009688', '#fde047'),              titleFn: (v) => `sommeil ${v}/10`   },
-  { key: 'anxiety',         label: 'Anxiété',   legendLow: 'faible',  legendHigh: 'intense', colorFn: (v) => heatColor(v, 0, 10, '#fde047', '#009688', '#8b0000'),              titleFn: (v) => `anxiété ${v}/10`   },
-  { key: 'brain_fog',       label: 'Brouillard',legendLow: 'clair',   legendHigh: 'dense',   colorFn: (v) => heatColor(v, 0, 10, '#fde047', '#7a92aa', '#1a2740'),              titleFn: (v) => `brouillard ${v}/10`},
-  { key: 'energy',          label: 'Énergie',   legendLow: 'basse',   legendHigh: 'haute',   colorFn: (v) => heatColor(v, 0, 10, '#1a1a3a', '#9b6dff', '#e0d4ff'),             titleFn: (v) => `énergie ${v}/10`   }
+  { key: 'mood_evening', label: 'Humeur', legendLow: 'basse', legendHigh: 'haute',
+    legendEmojis: ['😭','😢','😕','😐','🙂','😄'],
+    emojiFn: v => v == null ? null : (v <= 1 ? '😭' : v <= 3 ? '😢' : v <= 4 ? '😕' : v <= 6 ? '😐' : v <= 8 ? '🙂' : '😄'),
+    titleFn: v => `humeur ${v}/10` },
+  { key: 'sleep_duration_min', label: 'Sommeil', legendLow: 'courte', legendHigh: 'longue',
+    legendEmojis: ['🧟','😫','🥱','😌','😴','🤤','🪦'],
+    emojiFn: min => { if(!min) return null; const h = min / 60;
+      return h < 5 ? '🧟' : h < 6 ? '😫' : h < 7 ? '🥱' : h < 7.5 ? '😌' : h <= 9 ? '😴' : h <= 10 ? '🤤' : '🪦'; },
+    titleFn: min => { if(!min || isNaN(min)) return 'sommeil —'; const h = Math.floor(min/60), m = min % 60; return `sommeil ${h}h${m ? String(m).padStart(2,'0') : ''}`; } },
+  { key: 'anxiety', label: 'Anxiété', legendLow: 'faible', legendHigh: 'intense',
+    legendEmojis: ['😌','🙂','😬','😰','😱'],
+    emojiFn: v => v == null ? null : (v <= 1 ? '😌' : v <= 3 ? '🙂' : v <= 6 ? '😬' : v <= 8 ? '😰' : '😱'),
+    titleFn: v => `anxiété ${v}/10` },
+  { key: 'brain_fog', label: 'Brouillard', legendLow: 'clair', legendHigh: 'dense',
+    legendEmojis: ['☀️','⛅','☁️','🌁','🌫️'],
+    emojiFn: v => v == null ? null : (v <= 1 ? '☀️' : v <= 3 ? '⛅' : v <= 6 ? '☁️' : v <= 8 ? '🌁' : '🌫️'),
+    titleFn: v => `brouillard ${v}/10` },
+  { key: 'energy', label: 'Énergie', legendLow: 'vide', legendHigh: 'pleine',
+    legendEmojis: ['🪨','😮‍💨','🚶','⚡','🔥'],
+    emojiFn: v => v == null ? null : (v <= 1 ? '🪨' : v <= 3 ? '😮‍💨' : v <= 6 ? '🚶' : v <= 8 ? '⚡' : '🔥'),
+    titleFn: v => `énergie ${v}/10` }
 ];
 
 function heatColor(v, min, max, cLow, cMid, cHigh){
@@ -2412,7 +2445,9 @@ function renderHeatmap(c, entries){
       const entry = entryMap[dateStr];
       if(entry){
         const v = entry[metricDef.key];
-        cell.style.background = metricDef.colorFn(v);
+        const emo = metricDef.emojiFn(v);
+        if(emo) cell.textContent = emo;
+        else cell.classList.add('empty');
         cell.title = `${dateStr} : ${metricDef.titleFn(v ?? '—')}`;
         cell.onclick = ()=> showEditDay(entry.id);
       } else if(dateStr > todayStr()){
@@ -2431,10 +2466,7 @@ function renderHeatmap(c, entries){
   // Légende
   const legend = document.createElement('div');
   legend.className = 'heatmap-legend';
-  const steps = [0, 2, 4, 6, 8, 10];
-  legend.innerHTML = `<span>${metricDef.legendLow}</span><div class="heatmap-legend-cells">
-    ${steps.map(v => `<div class="heatmap-legend-cell" style="background:${metricDef.colorFn(v)}"></div>`).join('')}
-  </div><span>${metricDef.legendHigh}</span>`;
+  legend.innerHTML = `<span>${metricDef.legendLow}</span><div class="heatmap-legend-cells" style="font-size:16px;letter-spacing:3px">${metricDef.legendEmojis.join('')}</div><span>${metricDef.legendHigh}</span>`;
   heat.appendChild(legend);
   card.appendChild(heat);
 }
@@ -3126,7 +3158,7 @@ function exportMarkdown(){
     md += `| Indicateur | Moyenne |\n|---|---|\n`;
     md += `| Appréciation journée | ${avg('mood_evening')} / 10 |\n`;
     md += `| Sommeil | ${avg('sleep_quality')} / 10 |\n`;
-    md += `| Humeur réveil | ${avg('mood_morning')} / 10 |\n`;
+    { const mm = entries.filter(en=>en.mood_morning != null); if(mm.length) md += `| Humeur réveil | ${(mm.reduce((sum,en)=>sum+en.mood_morning,0)/mm.length).toFixed(1)} / 10 |\n`; }
     md += `| Brouillard mental (journée) | ${avg('brain_fog')} / 10 |\n`;
     md += `| Énergie journée | ${avg('energy')} / 10 |\n`;
     md += `| Anxiété | ${avg('anxiety')} / 10 |\n`;
@@ -3145,7 +3177,7 @@ function exportMarkdown(){
       }
       md += `- Sommeil : ${e.sleep_quality}/10 (${e.wake_count} réveils)\n`;
       if(e.dream_quality != null){ const dqL = {0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'}; md += `- Rêves : ${dqL[e.dream_quality]||'—'}${e.nightmare ? ' · Cauchemar' + (e.nightmare_note ? ' ('+e.nightmare_note+')' : '') : ''}\n`; }
-      md += `- Humeur réveil : ${e.mood_morning}/10\n`;
+      if(e.mood_morning != null) md += `- Humeur réveil : ${e.mood_morning}/10\n`;
       if(e.weight_kg != null) md += `- Poids : ${e.weight_kg} kg\n`;
     }
     if(e.evening_done){
@@ -3345,7 +3377,7 @@ function exportPDF(){
         if(e.nightmare_note) dreamStr += ' <span class="nightmare-note">('+e.nightmare_note+')</span>';
         dh += '<tr><td>Rêves</td><td>'+dreamStr+'</td></tr>';
       }
-      dh += '<tr><td>Humeur au réveil</td><td>'+scoreSpan(e.mood_morning,true)+'/10</td></tr>';
+      if(e.mood_morning != null) dh += '<tr><td>Humeur au réveil</td><td>'+scoreSpan(e.mood_morning,true)+'/10</td></tr>';
       if(e.weight_kg != null) dh += '<tr><td>Poids</td><td>'+e.weight_kg+' kg</td></tr>';
       dh += '</table>';
     }
