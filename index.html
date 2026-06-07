@@ -204,6 +204,28 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .heatmap-metric-btn:hover{color:var(--text);border-color:var(--bg-4)}
 .heatmap-metric-btn.active{background:rgba(78,205,196,.12);border-color:var(--teal);color:var(--teal)}
 .heatmap-legend{display:flex;align-items:center;gap:6px;margin-top:14px;font-size:11px;color:var(--text-faint)}
+
+/* Historique : vue calendrier */
+.hcal{display:flex;flex-direction:column;gap:18px}
+.hcal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.hcal-weekdays span{text-align:center;font-size:10px;color:var(--text-faint)}
+.hcal-cell{aspect-ratio:1;border-radius:6px;background:var(--bg-3);position:relative;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;user-select:none;transition:var(--t)}
+.hcal-cell .hcal-num{position:absolute;top:2px;left:4px;font-size:8px;color:var(--text-faint);line-height:1}
+.hcal-cell:active{transform:scale(.95)}
+.hcal-none{opacity:.45}
+.hcal-morning{background:rgba(245,166,35,.22)}
+.hcal-evening{background:rgba(106,90,205,.30)}
+.hcal-full{background:rgba(78,205,196,.22)}
+.hcal-today{outline:1.5px solid var(--teal);outline-offset:-1.5px}
+.hcal-future{opacity:.12;cursor:default;pointer-events:none}
+.hcal-blank{opacity:0;cursor:default;pointer-events:none}
+.hcal-legend{display:flex;gap:12px;flex-wrap:wrap;margin:2px 0 4px;font-size:11px;color:var(--text-faint)}
+.hcal-legend-item{display:flex;align-items:center;gap:5px}
+.hcal-swatch{width:12px;height:12px;border-radius:3px;background:var(--bg-3);display:inline-block}
+.hcal-swatch.hcal-none{opacity:.45}
+.hcal-swatch.hcal-morning{background:rgba(245,166,35,.5)}
+.hcal-swatch.hcal-evening{background:rgba(106,90,205,.55)}
+.hcal-swatch.hcal-full{background:rgba(78,205,196,.5)}
 .heatmap-legend-cells{display:flex;gap:3px}
 .heatmap-legend-cell{width:12px;height:12px;border-radius:2px}
 
@@ -367,8 +389,13 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
   <!-- ============ HISTORY ============ -->
   <div class="view" id="view-history">
     <h2 style="margin:0 0 16px;font-size:22px">Historique</h2>
+    <div class="stats-tabs" id="history-tabs" style="margin-bottom:14px">
+      <button class="stats-tab" data-hview="list">Liste</button>
+      <button class="stats-tab" data-hview="calendar">Calendrier</button>
+    </div>
     <input class="history-search" id="history-search" type="search" placeholder="Rechercher une date ou une note…" autocomplete="off">
     <div id="history-list-wrap"></div>
+    <div id="history-calendar-wrap" style="display:none"></div>
   </div>
 
   <!-- ============ EDIT DAY ============ -->
@@ -470,7 +497,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.7.0</footer>
+  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.8.0</footer>
 
 </div>
 
@@ -490,7 +517,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -534,6 +561,7 @@ function loadData(){
     });
     if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
+    if(!state.data.settings.history_view) state.data.settings.history_view = 'list';
     if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
     // Migration ponctuelle : tags d'activités renommés (idempotent, sans doublon)
     const TAG_RENAMES = {'Hyperactivité': 'Hyperactif', 'Trajet Bus': 'Bus', 'Trajet Train': 'Train', 'Trajet Vélo': 'Vélo', 'Trajet Voiture': 'Voiture'};
@@ -575,6 +603,7 @@ function defaultData(){
       },
       treatment_start: '2026-01-27',
       skin: 'minuit',
+      history_view: 'list',
       reminders: {
         wake:  {enabled: true, time: '15:00'},
         sleep: {enabled: true, time: '01:00'}
@@ -746,7 +775,7 @@ function showView(name){
   window.scrollTo(0, 0);
   if(!_skipPush) history.pushState({view:name}, '');
   if(name === 'home') renderHome();
-  if(name === 'history') renderHistory();
+  if(name === 'history') renderHistoryView();
   if(name === 'stats') renderStats();
   if(name === 'settings') renderSettings();
   document.getElementById('fab-quicknote').style.display = (name === 'entry' || name === 'edit-day' || name === 'history') ? 'none' : 'flex';
@@ -1015,8 +1044,8 @@ function mergeTrackerData(local, remote){
 }
 /* ===== SYNC-PURE-END ===== */
 
-function startEntry(editId, session){
-  const today = logicalDateStr();
+function startEntry(editId, session, forDate){
+  const today = forDate || logicalDateStr();
   if(editId){
     const entry = state.data.entries.find(e=>e.id === editId);
     if(!entry) return;
@@ -1027,6 +1056,12 @@ function startEntry(editId, session){
   } else {
     const existing = state.data.entries.find(e=>e.date === today);
     if(existing){
+      // Garde-fou saisie retroactive : ne jamais rouvrir une session deja remplie par ce chemin
+      if(forDate && session && existing[session + '_done']){
+        toast('La session ' + (session === 'morning' ? 'matin' : 'soir') + ' du ' + formatDate(forDate) + ' existe déjà. Voici la fiche du jour.', 'error');
+        showEditDay(existing.id);
+        return;
+      }
       state.entryDraft = JSON.parse(JSON.stringify(existing));
       migrateEntry(state.entryDraft);
       state.editingEntryId = existing.id;
@@ -1037,7 +1072,7 @@ function startEntry(editId, session){
     state.entrySession = session || autoDetectSession(state.entryDraft);
   }
   let steps = state.entrySession === 'morning' ? MORNING_STEPS : [...EVENING_STEPS];
-  if(state.entrySession === 'evening' && state.data.quicknotes && state.data.quicknotes.length > 0){
+  if(state.entrySession === 'evening' && state.data.quicknotes && state.data.quicknotes.length > 0 && state.entryDraft.date === logicalDateStr()){
     steps = ['quicknotes_review', ...steps];
   }
   state.entrySteps = steps;
@@ -2018,8 +2053,11 @@ async function nextStep(){
     } else {
       draft.evening_done = true;
       draft.evening_updated_at = _nowIso;
-      state.data.quicknotes = [];
-      state.data.quicknotes_cleared_at = _nowIso;
+      if(draft.date === logicalDateStr()){
+        // Les notes rapides ne sont consommees que par la session soir du jour courant
+        state.data.quicknotes = [];
+        state.data.quicknotes_cleared_at = _nowIso;
+      }
     }
     // Anti-doublon : si la date a été modifiée, fusionner avec l'entrée existante pour cette date
     const existingByDate = state.data.entries.find(e => e.date === draft.date && e.id !== draft.id);
@@ -2123,6 +2161,13 @@ function renderEditDayView(entry){
       delBtn.textContent = 'Supprimer session';
       delBtn.onclick = () => deleteSession(entry.id, session);
       hdr.appendChild(delBtn);
+    } else {
+      const fillBtn = document.createElement('button');
+      fillBtn.className = 'btn btn-primary';
+      fillBtn.style.cssText = 'padding:4px 10px;font-size:11px';
+      fillBtn.textContent = 'Remplir la session';
+      fillBtn.onclick = () => startEntry(entry.id, session);
+      hdr.appendChild(fillBtn);
     }
     sec.appendChild(hdr);
     steps.forEach(step => {
@@ -2229,7 +2274,7 @@ function renderHistory(query){
       </div>
       <div class="history-item-metrics">
         <div class="metric-mini"><span class="metric-mini-label">Humeur</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.mood_evening||0)*10}%;background:var(--teal)"></div></div><span class="metric-mini-val">${e.mood_evening??'—'}</span></div>
-        <div class="metric-mini"><span class="metric-mini-label">Sommeil qlt</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.sleep_quality||0)*10}%;background:var(--amber)"></div></div><span class="metric-mini-val">${e.sleep_quality??'—'}</span></div>
+        <div class="metric-mini"><span class="metric-mini-label">Anxiété</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.anxiety||0)*10}%;background:#e74c3c"></div></div><span class="metric-mini-val">${e.anxiety??'—'}</span></div>
         <div class="metric-mini"><span class="metric-mini-label">Durée</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${sleepDurPct}%;background:#5dbb63"></div></div><span class="metric-mini-val" style="width:32px">${sleepDurH}</span></div>
         <div class="metric-mini"><span class="metric-mini-label">Énergie</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.energy||0)*10}%;background:var(--purple)"></div></div><span class="metric-mini-val">${e.energy??'—'}</span></div>
         <div class="metric-mini"><span class="metric-mini-label">Brouillard</span><div class="bar-mini"><div class="bar-mini-fill" style="width:${(e.brain_fog||0)*10}%;background:#7a92aa"></div></div><span class="metric-mini-val">${e.brain_fog??'—'}</span></div>
@@ -2253,6 +2298,122 @@ function renderHistory(query){
   wrap.appendChild(list);
 }
 
+/* ============================================================
+   HISTORIQUE — vue calendrier et saisie retroactive
+   ============================================================ */
+
+/* Etat de remplissage d'un jour (logique pure, testee dans node) */
+function dayFillState(entry){
+  if(!entry) return 'none';
+  const m = !!entry.morning_done, ev = !!entry.evening_done;
+  return (m && ev) ? 'full' : (m ? 'morning' : (ev ? 'evening' : 'none'));
+}
+
+function renderHistoryView(){
+  const view = state.data.settings.history_view === 'calendar' ? 'calendar' : 'list';
+  document.querySelectorAll('#history-tabs .stats-tab').forEach(b => b.classList.toggle('active', b.dataset.hview === view));
+  document.getElementById('history-search').style.display = view === 'list' ? '' : 'none';
+  document.getElementById('history-list-wrap').style.display = view === 'list' ? '' : 'none';
+  document.getElementById('history-calendar-wrap').style.display = view === 'calendar' ? '' : 'none';
+  if(view === 'list') renderHistory();
+  else renderHistoryCalendar();
+}
+
+function renderHistoryCalendar(){
+  const wrap = document.getElementById('history-calendar-wrap');
+  wrap.innerHTML = '';
+  const entryMap = {};
+  state.data.entries.forEach(e => { entryMap[e.date] = e; });
+  const todayLogical = logicalDateStr();
+  const moodMetric = HEATMAP_METRICS.find(m => m.key === 'mood_evening');
+
+  // Legende
+  const legend = document.createElement('div');
+  legend.className = 'hcal-legend';
+  legend.innerHTML = [['hcal-none','Vide'],['hcal-morning','Matin'],['hcal-evening','Soir'],['hcal-full','Complet']]
+    .map(p => '<span class="hcal-legend-item"><span class="hcal-swatch ' + p[0] + '"></span>' + p[1] + '</span>').join('');
+  wrap.appendChild(legend);
+  const hint = document.createElement('p');
+  hint.className = 'help';
+  hint.style.cssText = 'margin:0 0 10px';
+  hint.textContent = 'Touche un jour pour le consulter, ou un jour vide pour ajouter une session.';
+  wrap.appendChild(hint);
+
+  // Mois du plus recent au plus ancien (premier mois de donnees), mois courant inclus
+  const months = [];
+  const todayD = new Date(todayLogical + 'T12:00:00');
+  let firstD = todayD;
+  if(state.data.entries.length > 0){
+    const firstDate = state.data.entries.reduce((min, e) => e.date < min ? e.date : min, state.data.entries[0].date);
+    firstD = new Date(firstDate + 'T12:00:00');
+  }
+  let cur = new Date(todayD.getFullYear(), todayD.getMonth(), 1);
+  const endM = new Date(firstD.getFullYear(), firstD.getMonth(), 1);
+  while(cur >= endM){
+    months.push(new Date(cur));
+    cur.setMonth(cur.getMonth() - 1);
+  }
+
+  const cal = document.createElement('div');
+  cal.className = 'hcal';
+  months.forEach(monthDate => {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const monthDiv = document.createElement('div');
+    const label = monthDate.toLocaleDateString('fr-FR', {month: 'long', year: 'numeric'});
+    monthDiv.innerHTML = '<div class="heatmap-month-label">' + escapeHtml(label) + '</div>'
+      + '<div class="hcal-weekdays"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>';
+    const grid = document.createElement('div');
+    grid.className = 'heatmap-grid';
+    const firstDay = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    let offset = firstDay.getDay() - 1;
+    if(offset < 0) offset = 6;
+    for(let i = 0; i < offset; i++){
+      const blank = document.createElement('div');
+      blank.className = 'hcal-cell hcal-blank';
+      grid.appendChild(blank);
+    }
+    for(let day = 1; day <= daysInMonth; day++){
+      const dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+      const entry = entryMap[dateStr];
+      const cell = document.createElement('div');
+      cell.className = 'hcal-cell hcal-' + dayFillState(entry);
+      if(dateStr === todayLogical) cell.classList.add('hcal-today');
+      const emo = (entry && entry.evening_done) ? moodMetric.emojiFn(entry.mood_evening) : null;
+      cell.innerHTML = '<span class="hcal-num">' + day + '</span>' + (emo ? emo : '');
+      if(dateStr > todayLogical){
+        cell.classList.remove('hcal-' + dayFillState(entry));
+        cell.classList.add('hcal-future');
+      } else if(entry){
+        cell.onclick = () => showEditDay(entry.id);
+      } else {
+        cell.onclick = () => promptRetroEntry(dateStr);
+      }
+      grid.appendChild(cell);
+    }
+    monthDiv.appendChild(grid);
+    cal.appendChild(monthDiv);
+  });
+  wrap.appendChild(cal);
+}
+
+/* Saisie retroactive : choix de la session pour un jour vide */
+function promptRetroEntry(dateStr){
+  showModal('<h3>Ajouter une entrée</h3>'
+    + '<p style="color:var(--text-dim)">' + escapeHtml(formatDate(dateStr)) + ' : quelle session veux-tu remplir ?</p>'
+    + '<div class="actions" style="flex-direction:column;gap:8px">'
+    + '<button class="btn btn-primary" onclick="window.retroStart(\'' + dateStr + '\', \'morning\')">☀️ Session réveil</button>'
+    + '<button class="btn btn-primary" onclick="window.retroStart(\'' + dateStr + '\', \'evening\')">🌙 Session coucher</button>'
+    + '</div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button></div>');
+}
+
+window.retroStart = function(dateStr, session){
+  closeModal();
+  startEntry(null, session, dateStr);
+};
+
 async function deleteEntry(id, date){
   if(!confirm(`Supprimer définitivement le ${formatDate(date)} et toutes ses données ?`)) return;
   state.data.entries = state.data.entries.filter(e => e.id !== id);
@@ -2262,7 +2423,7 @@ async function deleteEntry(id, date){
   const _delT = state.data.deleted_days.find(t => t.date === date);
   if(_delT) _delT.deleted_at = _delNow; else state.data.deleted_days.push({date: date, deleted_at: _delNow});
   await saveData();
-  renderHistory();
+  renderHistoryView();
   toast('Entrée supprimée.', 'success');
 }
 
@@ -4034,7 +4195,7 @@ function scheduleSyncPush(){
 function refreshAfterSync(){
   const v = state.currentView;
   if(v === 'home') renderHome();
-  else if(v === 'history') renderHistory();
+  else if(v === 'history') renderHistoryView();
   else if(v === 'stats') renderStats();
   else if(v === 'edit-day'){
     const still = state.data.entries.find(e => e.id === state.editingEntryId);
@@ -4125,6 +4286,13 @@ function init(){
   // Settings buttons
   document.getElementById('edit-day-back').addEventListener('click', () => showView('history'));
   document.getElementById('history-search').addEventListener('input', () => renderHistory());
+  document.getElementById('history-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('[data-hview]');
+    if(!btn) return;
+    state.data.settings.history_view = btn.dataset.hview;
+    saveData();
+    renderHistoryView();
+  });
   document.getElementById('btn-edit-defaults').addEventListener('click', editDefaults);
   document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
   document.getElementById('btn-toggle-notif').addEventListener('click', toggleNotifications);
