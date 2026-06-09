@@ -517,7 +517,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -3399,6 +3399,7 @@ function exportJSON(){
   };
   const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type:'application/json'});
   download(blob, `tracker-export-${todayStr()}.json`);
+  markArchiveDone();
 }
 
 function exportCSV(){
@@ -3884,6 +3885,57 @@ function exportPDF(){
 const REMINDER_WINDOW_MIN = 180;
 const REMINDER_FIRED_KEY = 'tracker_reminder_fired';
 
+// Proposition d'archive locale : tous les 7 jours, l'app propose (en un tap) de
+// telecharger un export JSON a garder sur l'appareil, en plus de la synchro cloud.
+// Etat par appareil, hors donnees synchronisees (meme principe que les rappels).
+const ARCHIVE_KEY = 'tracker_last_archive_v1';
+const ARCHIVE_INTERVAL_DAYS = 7;
+
+function loadArchiveState(){
+  try{ return JSON.parse(localStorage.getItem(ARCHIVE_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveArchiveState(obj){
+  localStorage.setItem(ARCHIVE_KEY, JSON.stringify(obj));
+}
+// Appelee apres chaque export JSON (manuel ou propose) : remet le compteur a zero.
+function markArchiveDone(){
+  const st = loadArchiveState();
+  st.last_export = new Date().toISOString();
+  saveArchiveState(st);
+}
+// Au lancement : si >= 7 jours depuis le dernier export JSON, proposer une archive.
+// Premier lancement : on amorce le compteur sans rien proposer.
+// Une seule proposition par jour logique ("Plus tard" => on redemande le lendemain).
+function checkArchivePrompt(){
+  const st = loadArchiveState();
+  if(!st.last_export){
+    st.last_export = new Date().toISOString();
+    saveArchiveState(st);
+    return;
+  }
+  const elapsed = Date.now() - new Date(st.last_export).getTime();
+  if(elapsed < ARCHIVE_INTERVAL_DAYS * 24 * 60 * 60 * 1000) return;
+  const today = logicalDateStr();
+  if(st.last_prompt === today) return;
+  st.last_prompt = today;
+  saveArchiveState(st);
+  const days = Math.floor(elapsed / (24 * 60 * 60 * 1000));
+  showModal(
+    '<h3>Sauvegarde de tes données</h3>'
+    + '<p style="margin:0 0 16px;line-height:1.5">Ça fait ' + days + ' jours depuis ta dernière archive locale. '
+    + 'Tu peux télécharger un fichier JSON à garder sur cet appareil, en plus de la synchro.</p>'
+    + '<div class="modal-actions">'
+    + '<button class="btn btn-secondary" onclick="closeModal()">Plus tard</button>'
+    + '<button class="btn btn-primary" onclick="archiveNow()">Télécharger l\'archive</button>'
+    + '</div>'
+  );
+}
+window.archiveNow = function(){
+  exportJSON();
+  closeModal();
+};
+
 function parseHM(str){
   const m = /^(\d{1,2}):(\d{2})$/.exec(str || '');
   if(!m) return null;
@@ -4359,6 +4411,9 @@ function init(){
   // Rappels : vérification au lancement + toutes les 30 min
   setTimeout(checkReminders, 3000);
   setInterval(checkReminders, 30 * 60 * 1000);
+
+  // Proposition d'archive locale (tous les 7 jours), apres l'affichage de l'accueil
+  setTimeout(checkArchivePrompt, 3500);
 
   // Synchronisation : au lancement, puis au retour au premier plan (60 s mini entre deux)
   if(syncEnabled()) setTimeout(() => syncNow(false), 1500);
