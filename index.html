@@ -497,7 +497,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
   </div>
 
-  <footer class="app-footer"><em>Réalisé par Destange</em> — v1.8.0</footer>
+  <footer class="app-footer" id="app-footer"><em>Réalisé par Destange</em></footer>
 
 </div>
 
@@ -517,7 +517,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.8.1';
+const VERSION = '1.8.2';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -4407,6 +4407,10 @@ function init(){
   });
 
   showView('home');
+
+  // Version affichee dans le footer : source unique = constante VERSION (evite tout decalage)
+  const _ftr = document.getElementById('app-footer');
+  if(_ftr) _ftr.innerHTML = '<em>Réalisé par Destange</em> &middot; v' + VERSION;
 
   // Rappels : vérification au lancement + toutes les 30 min
   setTimeout(checkReminders, 3000);
