@@ -518,7 +518,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.9.1';
+const VERSION = '1.9.2';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -1201,19 +1201,24 @@ function renderEntryStep(){
   if(!state.singleStepEdit && state.entryStep === 0){
     const dr = document.createElement('div');
     dr.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;font-size:13px;color:var(--text-dim)';
-    let inner = '<span>Saisie pour <strong style="color:var(--text)">' + escapeHtml(formatDate(state.entryDraft.date)) + '</strong></span>'
-      + '<button class="btn btn-secondary" id="entry-date-edit" style="padding:4px 10px;font-size:12px;min-height:0">Modifier</button>';
+    const sp = document.createElement('span');
+    sp.innerHTML = 'Saisie pour <strong style="color:var(--text)">' + escapeHtml(formatDate(state.entryDraft.date)) + '</strong>';
+    dr.appendChild(sp);
+    const de = document.createElement('button');
+    de.className = 'btn btn-secondary';
+    de.style.cssText = 'padding:4px 10px;font-size:12px;min-height:0';
+    de.textContent = 'Modifier';
+    de.onclick = editEntryDate;
+    dr.appendChild(de);
     if(state.entrySession === 'evening' && !state.entryDraft.evening_done && state.entrySteps.indexOf('rgo') !== -1){
-      inner += '<button class="btn btn-secondary" id="entry-minimal-btn" style="padding:4px 10px;font-size:12px;min-height:0;margin-left:auto">Saisie minimale</button>';
+      const mb = document.createElement('button');
+      mb.className = 'btn btn-secondary';
+      mb.style.cssText = 'padding:4px 10px;font-size:12px;min-height:0;margin-left:auto';
+      mb.textContent = 'Saisie minimale';
+      mb.onclick = startMinimalEvening;
+      dr.appendChild(mb);
     }
-    dr.innerHTML = inner;
     c.appendChild(dr);
-    setTimeout(()=>{
-      const de = document.getElementById('entry-date-edit');
-      if(de) de.onclick = editEntryDate;
-      const mb = document.getElementById('entry-minimal-btn');
-      if(mb) mb.onclick = startMinimalEvening;
-    },0);
   }
   c.appendChild(buildStep(step));
   if(state.singleStepEdit){
