@@ -518,7 +518,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -1308,6 +1308,7 @@ function buildStep(step){
       <input type="range" min="0" max="10" step="1" value="${hasVal ? d[step] : 5}" id="sl-${step}">
       <div class="slider-labels"><span>0</span><span>5</span><span>10</span></div>`;
     w.appendChild(sw);
+    if(!hasVal) document.getElementById('entry-next').disabled = true;
     setTimeout(()=>{
       const sl = document.getElementById('sl-'+step);
       const sv = document.getElementById('sv-'+step);
@@ -1316,7 +1317,6 @@ function buildStep(step){
         sv.textContent = d[step];
         document.getElementById('entry-next').disabled = false;
       };
-      if(!hasVal) document.getElementById('entry-next').disabled = true;
       sl.addEventListener('input', commit);
       sl.addEventListener('click', commit);
     },0);
@@ -1335,6 +1335,7 @@ function buildStep(step){
       <input type="range" min="-5" max="5" step="1" value="${hasVal ? val : 0}" id="sl-blunting">
       <div class="slider-labels"><span>−5</span><span>0</span><span>+5</span></div>`;
     w.appendChild(sw);
+    if(!hasVal) document.getElementById('entry-next').disabled = true;
     setTimeout(()=>{
       const sl = document.getElementById('sl-blunting');
       const sv = document.getElementById('sv-blunting');
@@ -1343,7 +1344,6 @@ function buildStep(step){
         sv.textContent = d.blunting > 0 ? '+'+d.blunting : String(d.blunting);
         document.getElementById('entry-next').disabled = false;
       };
-      if(!hasVal) document.getElementById('entry-next').disabled = true;
       sl.addEventListener('input', commit);
       sl.addEventListener('click', commit);
     },0);
@@ -1372,9 +1372,7 @@ function buildStep(step){
       cards.appendChild(card);
     });
     w.appendChild(cards);
-    setTimeout(()=>{
-      if(d.libido == null) document.getElementById('entry-next').disabled = true;
-    },0);
+    if(d.libido == null) document.getElementById('entry-next').disabled = true;
     return w;
   }
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'life-tracker-v14';
+const CACHE_NAME = 'life-tracker-v15';
 
 const ASSETS = [
   '/Mood-tracker/',
