@@ -207,6 +207,8 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .chart-wrap.mini{height:150px}
 .tend-block{margin-bottom:14px}
 .tend-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.tend-events{font-size:11px;color:var(--amber);margin:2px 0 12px;display:flex;flex-wrap:wrap;gap:3px 14px}
+.tend-events span{white-space:nowrap}
 
 /* heatmap */
 .heatmap{display:flex;flex-direction:column;gap:16px}
@@ -538,7 +540,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.11.0';
+const VERSION = '1.12.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -2210,7 +2212,8 @@ function prevStep(){
    EDIT DAY (modification d'une entrée champ par champ)
    ============================================================ */
 
-function showEditDay(entryId){
+function showEditDay(entryId, returnView){
+  state.editDayReturnView = returnView || 'history';
   const entry = state.data.entries.find(e => e.id === entryId);
   if(!entry) return;
   state.entryDraft = JSON.parse(JSON.stringify(entry));
@@ -2910,9 +2913,9 @@ const TEND_METRICS = [
   {key:'blunt',   label:'Sensibilité émot. (-5/+5)', color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5}
 ];
 
-// Plugin inline : lignes verticales des événements de traitement (ambre, libellé optionnel)
-// et repères discrets des jours marquants (violet, en bas)
-function tendEventsPlugin(dateIndex, events, notable, showLabels){
+// Plugin inline : lignes verticales des événements de traitement (ambre, libellés dans la légende
+// au-dessus des graphiques) et repères des jours marquants (trait violet léger + triangle)
+function tendEventsPlugin(dateIndex, events, notable){
   return {
     id: 'tendEvents',
     afterDraw(chart){
@@ -2922,31 +2925,34 @@ function tendEventsPlugin(dateIndex, events, notable, showLabels){
         const i = dateIndex[d];
         if(i === undefined) return;
         const xp = x.getPixelForValue(i);
-        cx.fillStyle = 'rgba(155,109,255,.65)';
         cx.beginPath();
-        cx.moveTo(xp - 3, y.bottom);
-        cx.lineTo(xp + 3, y.bottom);
-        cx.lineTo(xp, y.bottom - 5);
+        cx.moveTo(xp, y.top);
+        cx.lineTo(xp, y.bottom);
+        cx.strokeStyle = 'rgba(155,109,255,.3)';
+        cx.lineWidth = 1.5;
+        cx.setLineDash([2, 3]);
+        cx.stroke();
+        cx.setLineDash([]);
+        cx.fillStyle = 'rgba(155,109,255,.95)';
+        cx.beginPath();
+        cx.moveTo(xp - 5, y.bottom);
+        cx.lineTo(xp + 5, y.bottom);
+        cx.lineTo(xp, y.bottom - 9);
         cx.closePath();
         cx.fill();
       });
-      events.forEach((ev, k) => {
+      events.forEach(ev => {
         const i = dateIndex[ev.date];
         if(i === undefined) return;
         const xp = x.getPixelForValue(i);
         cx.beginPath();
         cx.moveTo(xp, y.top);
         cx.lineTo(xp, y.bottom);
-        cx.strokeStyle = 'rgba(245,166,35,.55)';
+        cx.strokeStyle = 'rgba(245,166,35,.45)';
         cx.lineWidth = 1;
         cx.setLineDash([4, 3]);
         cx.stroke();
         cx.setLineDash([]);
-        if(showLabels){
-          cx.fillStyle = 'rgba(245,166,35,.9)';
-          cx.font = '9px system-ui';
-          cx.fillText(ev.label, xp + 3, y.top + 9 + (k % 2) * 10);
-        }
       });
       cx.restore();
     }
@@ -2976,8 +2982,9 @@ function renderTendances(c, entries){
       <span style="font-size:12px;color:var(--text-faint)">Points pâles : valeurs brutes. Trait plein : moyenne mobile 7 jours.</span>
     </div>
     <div class="heatmap-metric-selector" id="tend-period">${PERIODS.map(([n,lab]) => `<button class="heatmap-metric-btn${period === n ? ' active' : ''}" data-period="${n}">${lab}</button>`).join('')}</div>
+    ${events.length ? `<div class="tend-events">${events.map(ev => `<span>${new Date(ev.date + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'short'})} : ${ev.label}</span>`).join('')}</div>` : ''}
     ${TEND_METRICS.map(m => `<div class="tend-block"><div class="tend-title" style="color:${m.color}">${m.label}</div><div class="stats-card"><div class="chart-wrap mini"><canvas id="tend-${m.key}"></canvas></div></div></div>`).join('')}
-    <div class="home-note">Lignes ambre : événements de traitement (sevrage paroxétine depuis les réglages, changements de dose miansérine détectés dans les saisies). Triangles violets : jours marqués comme événement marquant. Les jours non saisis laissent un trou : la moyenne mobile s'interrompt quand moins de 3 jours sont disponibles sur la fenêtre.</div>
+    <div class="home-note">Lignes ambre : événements de traitement, détaillés au-dessus des graphiques. Triangles violets : jours marqués comme événement marquant. Appuie sur un point pour ouvrir la fiche du jour. Les jours non saisis laissent un trou : la moyenne mobile s'interrompt quand moins de 3 jours sont disponibles sur la fenêtre.</div>
   `;
   c.appendChild(sec);
 
@@ -2988,7 +2995,7 @@ function renderTendances(c, entries){
     renderStats();
   });
 
-  TEND_METRICS.forEach((m, mi) => {
+  TEND_METRICS.forEach(m => {
     const raw = tendSeries(entries, m.getter, dates);
     const ma = tendMovingAvg(raw, 7, 3);
     const ctx = document.getElementById('tend-' + m.key).getContext('2d');
@@ -3000,13 +3007,18 @@ function renderTendances(c, entries){
           {label: 'moy. 7 j', data: ma, borderColor: m.color, backgroundColor: 'transparent',
            borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: false},
           {label: 'brut', data: raw, borderColor: 'transparent', backgroundColor: m.color + '59',
-           showLine: false, pointRadius: 2, pointHoverRadius: 4}
+           showLine: false, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12}
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        onClick(evt, els){
+          if(!els.length) return;
+          const en = entries.find(x => x.date === dates[els[0].index]);
+          if(en) showEditDay(en.id, 'stats');
+        },
         plugins: {
           legend: {display: false},
           tooltip: {
@@ -3025,7 +3037,7 @@ function renderTendances(c, entries){
           y: {min: m.yMin, suggestedMax: m.yMax, ticks: {color:'#6b7785', font:{size:9}, maxTicksLimit: 5}, grid: {color:'#1f2730'}}
         }
       },
-      plugins: [tendEventsPlugin(dateIndex, events, notable, mi === 0)]
+      plugins: [tendEventsPlugin(dateIndex, events, notable)]
     });
   });
 }
@@ -3095,6 +3107,12 @@ function renderCurves(c, entries){
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick(evt, els){
+        if(!els.length) return;
+        const en = entries[els[0].index];
+        if(en) showEditDay(en.id, 'stats');
+      },
+      elements: { point: { hitRadius: 12 } },
       plugins: {
         legend: {
           labels: { color:'#9aa5b1', font:{size:11}, boxWidth:14 },
@@ -4813,7 +4831,7 @@ function init(){
   });
 
   // Settings buttons
-  document.getElementById('edit-day-back').addEventListener('click', () => showView('history'));
+  document.getElementById('edit-day-back').addEventListener('click', () => showView(state.editDayReturnView || 'history'));
   document.getElementById('history-search').addEventListener('input', () => renderHistory());
   document.getElementById('history-tabs').addEventListener('click', e => {
     const btn = e.target.closest('[data-hview]');
