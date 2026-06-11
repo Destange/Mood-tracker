@@ -204,6 +204,9 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .bilan-line.flat{color:var(--text-dim)}
 .chart-wrap{position:relative;height:240px;margin-top:8px}
 .chart-wrap.tall{height:300px}
+.chart-wrap.mini{height:150px}
+.tend-block{margin-bottom:14px}
+.tend-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 
 /* heatmap */
 .heatmap{display:flex;flex-direction:column;gap:16px}
@@ -428,6 +431,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     <h2 style="margin:0 0 16px;font-size:22px">Statistiques</h2>
     <div class="stats-tabs" id="stats-tabs">
       <button class="stats-tab active" data-tab="bilan">Bilan</button>
+      <button class="stats-tab" data-tab="trends">Tendances</button>
       <button class="stats-tab" data-tab="curves">Courbes</button>
       <button class="stats-tab" data-tab="heatmap">Heatmap</button>
       <button class="stats-tab" data-tab="meds">Doses</button>
@@ -534,7 +538,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.10.0';
+const VERSION = '1.11.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -548,6 +552,7 @@ const state = {
   editingEntryId: null,
   singleStepEdit: false,
   statsTab: 'bilan',
+  tendPeriod: 90, // Tendances : 30/90/180 jours, 0 = tout
   curvesPeriod: 30, // 7/14/30/90 jours, 0 = tout
   heatmapMetric: 'mood_evening',
   charts: {}
@@ -2570,6 +2575,7 @@ function renderStats(){
   }
 
   if(state.statsTab === 'bilan') renderBilan(c, entries);
+  else if(state.statsTab === 'trends') renderTendances(c, entries);
   else if(state.statsTab === 'curves') renderCurves(c, entries);
   else if(state.statsTab === 'heatmap') renderHeatmap(c, entries);
   else if(state.statsTab === 'meds') renderDosesCharts(c, entries);
@@ -2815,6 +2821,213 @@ function renderBilan(c, entries){
     + summaryHtml
     + '<div class="home-note">Ce bilan met en avant le changement plutôt que le niveau absolu : c\'est la direction qui informe, pas la valeur d\'un soir. Les jours non saisis sont simplement ignorés.</div>';
   c.appendChild(sec);
+}
+
+/* ===== TEND-PURE-BEGIN : logique pure de l'onglet Tendances (extractible, testée dans node) ===== */
+
+// Axe du temps continu : toutes les dates de from à to inclus (les jours non saisis restent des trous)
+function tendDateAxis(from, to){
+  const dates = [];
+  let d = from;
+  while(d <= to){
+    dates.push(d);
+    d = bilanAddDays(d, 1);
+  }
+  return dates;
+}
+
+// Série alignée sur l'axe : valeur du getter pour chaque date, null si jour absent ou non renseigné
+function tendSeries(entries, getter, dates){
+  const byDate = {};
+  entries.forEach(e => {
+    const v = getter(e);
+    if(v !== null) byDate[e.date] = v;
+  });
+  return dates.map(d => Object.prototype.hasOwnProperty.call(byDate, d) ? byDate[d] : null);
+}
+
+// Moyenne mobile glissante sur 7 jours calendaires (fenêtre i-6..i sur l'axe continu).
+// Moins de minVals valeurs réelles dans la fenêtre : null (le trait s'interrompt, pas de courbe inventée).
+function tendMovingAvg(values, win, minVals){
+  win = win || 7;
+  minVals = minVals || 3;
+  return values.map((_, i) => {
+    const slice = values.slice(Math.max(0, i - win + 1), i + 1).filter(v => v !== null);
+    if(slice.length < minVals) return null;
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+}
+
+// Événements de traitement depuis le schéma de sevrage des réglages
+function tendTaperEvents(taper){
+  const evts = [];
+  (taper || []).forEach(t => {
+    if(!t || !t.from) return;
+    let label;
+    if(t.mg === 0) label = 'Arrêt parox.';
+    else if(t.mode === 'every_other_day') label = 'Parox. ' + t.mg + ' mg 1 j/2';
+    else label = 'Parox. ' + t.mg + ' mg';
+    evts.push({date: t.from, label: label});
+  });
+  return evts;
+}
+
+// Changements de dose de miansérine détectés dans les saisies (soirs terminés uniquement).
+// La première valeur observée est la référence : seuls les changements suivants deviennent des événements.
+function tendMianserineEvents(entries){
+  const evts = [];
+  let last = null;
+  entries.forEach(e => {
+    if(!e.evening_done || typeof e.mianserine_mg !== 'number') return;
+    if(last !== null && e.mianserine_mg !== last){
+      evts.push({date: e.date, label: 'Mians. ' + e.mianserine_mg + ' mg'});
+    }
+    last = e.mianserine_mg;
+  });
+  return evts;
+}
+
+// Dates des événements marquants cochés dans les saisies
+function tendNotableDates(entries){
+  return entries.filter(e => e.evening_done && e.notable_event).map(e => e.date);
+}
+
+// Extracteurs supplémentaires (mêmes garde-fous que le Bilan : session terminée obligatoire)
+function tendGetEnergy(e){ return (e.evening_done && typeof e.energy === 'number') ? e.energy : null; }
+function tendGetFog(e){ return (e.evening_done && typeof e.brain_fog === 'number') ? e.brain_fog : null; }
+function tendGetBlunting(e){ return (e.evening_done && typeof e.blunting === 'number') ? e.blunting : null; }
+function tendGetSleepHours(e){ const m = bilanGetSleepMin(e); return m === null ? null : m / 60; }
+/* ===== TEND-PURE-END ===== */
+
+/* ===== Onglet Tendances : rendu (petits multiples) ===== */
+
+const TEND_METRICS = [
+  {key:'mood',    label:'Humeur',                    color:'#4ecdc4', getter: bilanGetMood,     yMin:0,  yMax:10},
+  {key:'anxiety', label:'Anxiété',                   color:'#e74c3c', getter: bilanGetAnxiety,  yMin:0,  yMax:10},
+  {key:'energy',  label:'Énergie',                   color:'#9b6dff', getter: tendGetEnergy,    yMin:0,  yMax:10},
+  {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:0, yMax:12},
+  {key:'fog',     label:'Brouillard',                color:'#7a92aa', getter: tendGetFog,       yMin:0,  yMax:10},
+  {key:'blunt',   label:'Sensibilité émot. (-5/+5)', color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5}
+];
+
+// Plugin inline : lignes verticales des événements de traitement (ambre, libellé optionnel)
+// et repères discrets des jours marquants (violet, en bas)
+function tendEventsPlugin(dateIndex, events, notable, showLabels){
+  return {
+    id: 'tendEvents',
+    afterDraw(chart){
+      const cx = chart.ctx, x = chart.scales.x, y = chart.scales.y;
+      cx.save();
+      notable.forEach(d => {
+        const i = dateIndex[d];
+        if(i === undefined) return;
+        const xp = x.getPixelForValue(i);
+        cx.fillStyle = 'rgba(155,109,255,.65)';
+        cx.beginPath();
+        cx.moveTo(xp - 3, y.bottom);
+        cx.lineTo(xp + 3, y.bottom);
+        cx.lineTo(xp, y.bottom - 5);
+        cx.closePath();
+        cx.fill();
+      });
+      events.forEach((ev, k) => {
+        const i = dateIndex[ev.date];
+        if(i === undefined) return;
+        const xp = x.getPixelForValue(i);
+        cx.beginPath();
+        cx.moveTo(xp, y.top);
+        cx.lineTo(xp, y.bottom);
+        cx.strokeStyle = 'rgba(245,166,35,.55)';
+        cx.lineWidth = 1;
+        cx.setLineDash([4, 3]);
+        cx.stroke();
+        cx.setLineDash([]);
+        if(showLabels){
+          cx.fillStyle = 'rgba(245,166,35,.9)';
+          cx.font = '9px system-ui';
+          cx.fillText(ev.label, xp + 3, y.top + 9 + (k % 2) * 10);
+        }
+      });
+      cx.restore();
+    }
+  };
+}
+
+function renderTendances(c, entries){
+  const today = logicalDateStr();
+  const PERIODS = [[30,'1 mois'],[90,'3 mois'],[180,'6 mois'],[0,'Tout']];
+  const period = state.tendPeriod;
+  const from = period ? bilanAddDays(today, -(period - 1)) : (entries.length ? entries[0].date : today);
+  const dates = tendDateAxis(from, today);
+  const dateIndex = {};
+  dates.forEach((d, i) => { dateIndex[d] = i; });
+  const labels = dates.map(d => d.slice(8,10) + '/' + d.slice(5,7));
+
+  const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
+  const events = tendTaperEvents(taper).concat(tendMianserineEvents(entries))
+    .filter(ev => ev.date >= from && ev.date <= today);
+  const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
+
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  sec.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <h3 style="margin:0">Tendances</h3>
+      <span style="font-size:12px;color:var(--text-faint)">Points pâles : valeurs brutes. Trait plein : moyenne mobile 7 jours.</span>
+    </div>
+    <div class="heatmap-metric-selector" id="tend-period">${PERIODS.map(([n,lab]) => `<button class="heatmap-metric-btn${period === n ? ' active' : ''}" data-period="${n}">${lab}</button>`).join('')}</div>
+    ${TEND_METRICS.map(m => `<div class="tend-block"><div class="tend-title" style="color:${m.color}">${m.label}</div><div class="stats-card"><div class="chart-wrap mini"><canvas id="tend-${m.key}"></canvas></div></div></div>`).join('')}
+    <div class="home-note">Lignes ambre : événements de traitement (sevrage paroxétine depuis les réglages, changements de dose miansérine détectés dans les saisies). Triangles violets : jours marqués comme événement marquant. Les jours non saisis laissent un trou : la moyenne mobile s'interrompt quand moins de 3 jours sont disponibles sur la fenêtre.</div>
+  `;
+  c.appendChild(sec);
+
+  sec.querySelector('#tend-period').addEventListener('click', e => {
+    const btn = e.target.closest('[data-period]');
+    if(!btn) return;
+    state.tendPeriod = parseInt(btn.dataset.period, 10);
+    renderStats();
+  });
+
+  TEND_METRICS.forEach((m, mi) => {
+    const raw = tendSeries(entries, m.getter, dates);
+    const ma = tendMovingAvg(raw, 7, 3);
+    const ctx = document.getElementById('tend-' + m.key).getContext('2d');
+    state.charts['tend_' + m.key] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {label: 'moy. 7 j', data: ma, borderColor: m.color, backgroundColor: 'transparent',
+           borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: false},
+          {label: 'brut', data: raw, borderColor: 'transparent', backgroundColor: m.color + '59',
+           showLine: false, pointRadius: 2, pointHoverRadius: 4}
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {display: false},
+          tooltip: {
+            backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1',
+            callbacks: {
+              label(tc){
+                if(tc.parsed.y === null) return null;
+                const v = m.key === 'sleep' ? tc.parsed.y.toFixed(1) + ' h' : tc.parsed.y.toFixed(1);
+                return (tc.datasetIndex === 0 ? 'moy. 7 j : ' : 'jour : ') + v;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {ticks: {color:'#6b7785', font:{size:9}, maxTicksLimit: 8, maxRotation: 0}, grid: {display: false}},
+          y: {min: m.yMin, suggestedMax: m.yMax, ticks: {color:'#6b7785', font:{size:9}, maxTicksLimit: 5}, grid: {color:'#1f2730'}}
+        }
+      },
+      plugins: [tendEventsPlugin(dateIndex, events, notable, mi === 0)]
+    });
+  });
 }
 
 function renderCurves(c, entries){
