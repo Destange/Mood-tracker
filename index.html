@@ -187,6 +187,21 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .stats-section{margin-bottom:24px}
 .stats-section h3{font-size:13px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:500;margin:0 0 12px}
 .stats-card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.bilan-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px}
+.bilan-card{padding:14px}
+.bilan-label{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.bilan-delta{font-size:30px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.bilan-delta.good{color:var(--teal)}
+.bilan-delta.bad{color:var(--red)}
+.bilan-delta.flat{color:var(--text-dim)}
+.bilan-sub{font-size:12px;color:var(--text-dim);margin-top:4px}
+.bilan-spark{width:100%;height:36px;margin-top:10px;display:block}
+.bilan-quiet{font-size:13px;color:var(--text-dim);margin-bottom:12px}
+.bilan-summary{margin-bottom:12px}
+.bilan-line{font-size:14px;line-height:1.5}
+.bilan-line.good{color:var(--teal)}
+.bilan-line.bad{color:var(--red)}
+.bilan-line.flat{color:var(--text-dim)}
 .chart-wrap{position:relative;height:240px;margin-top:8px}
 .chart-wrap.tall{height:300px}
 
@@ -412,7 +427,8 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
   <div class="view" id="view-stats">
     <h2 style="margin:0 0 16px;font-size:22px">Statistiques</h2>
     <div class="stats-tabs" id="stats-tabs">
-      <button class="stats-tab active" data-tab="curves">Courbes</button>
+      <button class="stats-tab active" data-tab="bilan">Bilan</button>
+      <button class="stats-tab" data-tab="curves">Courbes</button>
       <button class="stats-tab" data-tab="heatmap">Heatmap</button>
       <button class="stats-tab" data-tab="meds">Doses</button>
       <button class="stats-tab" data-tab="side_effects">Ressentis nég.</button>
@@ -518,7 +534,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.9.2';
+const VERSION = '1.10.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -531,7 +547,7 @@ const state = {
   entrySteps: [],
   editingEntryId: null,
   singleStepEdit: false,
-  statsTab: 'curves',
+  statsTab: 'bilan',
   curvesPeriod: 30, // 7/14/30/90 jours, 0 = tout
   heatmapMetric: 'mood_evening',
   charts: {}
@@ -2553,7 +2569,8 @@ function renderStats(){
     return;
   }
 
-  if(state.statsTab === 'curves') renderCurves(c, entries);
+  if(state.statsTab === 'bilan') renderBilan(c, entries);
+  else if(state.statsTab === 'curves') renderCurves(c, entries);
   else if(state.statsTab === 'heatmap') renderHeatmap(c, entries);
   else if(state.statsTab === 'meds') renderDosesCharts(c, entries);
   else if(state.statsTab === 'corr') renderCorrelations(c, entries);
@@ -2561,6 +2578,243 @@ function renderStats(){
   else if(state.statsTab === 'positive_feelings') renderPositiveFeelingsChart(c, entries);
   else if(state.statsTab === 'activities_impact') renderActivitiesImpact(c, entries);
   else if(state.statsTab === 'weekly') renderWeeklySummary(c, entries);
+}
+
+/* ===== BILAN-PURE-BEGIN : logique pure de l'onglet Bilan (extractible, testée dans node) ===== */
+
+// Ajoute n jours (négatif accepté) à une date AAAA-MM-JJ, sans dépendre du fuseau
+function bilanAddDays(dateStr, n){
+  const p = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(p[0], p[1] - 1, p[2] + n));
+  return dt.toISOString().slice(0, 10);
+}
+
+// Entrées dont la date est dans [from, to] inclus (comparaison de chaînes AAAA-MM-JJ)
+function bilanWindow(entries, from, to){
+  return entries.filter(e => e.date >= from && e.date <= to);
+}
+
+// Moyenne, effectif et écart type des valeurs renvoyées par getter (null = jour ignoré)
+function bilanStats(entries, getter){
+  const vals = [];
+  entries.forEach(e => {
+    const v = getter(e);
+    if(typeof v === 'number' && isFinite(v)) vals.push(v);
+  });
+  if(vals.length === 0) return {avg: null, n: 0, sd: null};
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  let sd = null;
+  if(vals.length >= 2){
+    const variance = vals.reduce((a, b) => a + (b - avg) * (b - avg), 0) / vals.length;
+    sd = Math.sqrt(variance);
+  }
+  return {avg: avg, n: vals.length, sd: sd};
+}
+
+// Extracteurs : une session non remplie ne fournit jamais de valeur
+// (les anciennes entrées matin-seul pouvaient garder un mood_evening par défaut : exclu par evening_done)
+function bilanGetMood(e){ return (e.evening_done && typeof e.mood_evening === 'number') ? e.mood_evening : null; }
+function bilanGetAnxiety(e){ return (e.evening_done && typeof e.anxiety === 'number') ? e.anxiety : null; }
+function bilanGetSleepMin(e){ return (e.morning_done && typeof e.sleep_duration_min === 'number' && e.sleep_duration_min > 0) ? e.sleep_duration_min : null; }
+
+// Seuils : en dessous de BILAN_MIN_DAYS jours saisis, pas de moyenne ni de delta (pas de chiffre trompeur).
+// Un delta de moins de BILAN_FLAT n'est pas interprété (bruit).
+const BILAN_MIN_DAYS = 3;
+const BILAN_FLAT = 0.3;
+const BILAN_IDEATION_MIN_DAYS = 5;
+const BILAN_IDEATION_FLAT = 2;
+
+function computeBilan(entries, today){
+  const d = n => bilanAddDays(today, n);
+  const w7   = bilanWindow(entries, d(-6),  today);   // 7 derniers jours
+  const w7p  = bilanWindow(entries, d(-13), d(-7));   // 7 jours précédents
+  const w14  = bilanWindow(entries, d(-13), today);   // 14 derniers jours
+  const w14p = bilanWindow(entries, d(-27), d(-14));  // 14 jours précédents
+
+  function metric(getter){
+    const cur = bilanStats(w7, getter);
+    const prev = bilanStats(w7p, getter);
+    const okCur = cur.n >= BILAN_MIN_DAYS;
+    const okPrev = prev.n >= BILAN_MIN_DAYS;
+    return {
+      avg: okCur ? cur.avg : null,
+      n: cur.n,
+      prevAvg: okPrev ? prev.avg : null,
+      prevN: prev.n,
+      delta: (okCur && okPrev) ? cur.avg - prev.avg : null
+    };
+  }
+
+  const mood = metric(bilanGetMood);
+  const anxiety = metric(bilanGetAnxiety);
+
+  const sleepCur = bilanStats(w7, bilanGetSleepMin);
+  const sleep = {
+    avgMin: sleepCur.n >= BILAN_MIN_DAYS ? sleepCur.avg : null,
+    n: sleepCur.n,
+    sdMin: sleepCur.n >= BILAN_MIN_DAYS ? sleepCur.sd : null
+  };
+
+  const ideationDays = ws => ws.filter(e => e.evening_done && e.suicidal && e.suicidal !== 'aucune').length;
+  const eveningDays  = ws => ws.filter(e => e.evening_done).length;
+  const suicidal = {
+    days: ideationDays(w14), n: eveningDays(w14),
+    prevDays: ideationDays(w14p), prevN: eveningDays(w14p)
+  };
+
+  // Mini-courbe : humeur des 14 derniers jours, index 0 = il y a 13 jours, null = jour sans saisie
+  const byDate = {};
+  w14.forEach(e => {
+    const v = bilanGetMood(e);
+    if(v !== null) byDate[e.date] = v;
+  });
+  const spark = [];
+  for(let i = -13; i <= 0; i++){
+    const dt = d(i);
+    spark.push(Object.prototype.hasOwnProperty.call(byDate, dt) ? byDate[dt] : null);
+  }
+
+  // Synthèse : uniquement des deltas calculables et au-delà du seuil de bruit
+  const improving = [];
+  const worsening = [];
+  let comparable = false;
+  if(mood.delta !== null){
+    comparable = true;
+    if(mood.delta >= BILAN_FLAT) improving.push({key: 'mood', label: 'Humeur', delta: mood.delta});
+    else if(mood.delta <= -BILAN_FLAT) worsening.push({key: 'mood', label: 'Humeur', delta: mood.delta});
+  }
+  if(anxiety.delta !== null){
+    comparable = true;
+    if(anxiety.delta <= -BILAN_FLAT) improving.push({key: 'anxiety', label: 'Anxiété', delta: anxiety.delta});
+    else if(anxiety.delta >= BILAN_FLAT) worsening.push({key: 'anxiety', label: 'Anxiété', delta: anxiety.delta});
+  }
+  if(suicidal.n >= BILAN_IDEATION_MIN_DAYS && suicidal.prevN >= BILAN_IDEATION_MIN_DAYS){
+    comparable = true;
+    const diff = suicidal.days - suicidal.prevDays;
+    if(diff <= -BILAN_IDEATION_FLAT) improving.push({key: 'suicidal', label: 'Idéations', days: suicidal.days, prevDays: suicidal.prevDays});
+    else if(diff >= BILAN_IDEATION_FLAT) worsening.push({key: 'suicidal', label: 'Idéations', days: suicidal.days, prevDays: suicidal.prevDays});
+  }
+
+  return {mood: mood, anxiety: anxiety, sleep: sleep, suicidal: suicidal, spark: spark,
+          summary: {improving: improving, worsening: worsening, comparable: comparable}};
+}
+/* ===== BILAN-PURE-END ===== */
+
+/* ===== Onglet Bilan : rendu ===== */
+
+// Format français : virgule décimale, signe explicite pour les deltas
+function bilanFmt(v, dec){ return v.toFixed(dec === undefined ? 1 : dec).replace('.', ','); }
+function bilanFmtDelta(v){ return (v >= 0 ? '+' : '-') + bilanFmt(Math.abs(v)); }
+function bilanFmtHours(min){
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return h + ' h ' + String(m).padStart(2, '0');
+}
+
+// Mini-courbe SVG : 14 jours, points pâles, trait teal entre jours renseignés
+function bilanSparkSvg(spark){
+  const W = 140, H = 36, PAD = 4;
+  const x = i => PAD + i * ((W - 2 * PAD) / 13);
+  const y = v => (H - PAD) - (v / 10) * (H - 2 * PAD);
+  let dots = '', pathD = '', pen = false;
+  spark.forEach((v, i) => {
+    if(v === null){ pen = false; return; }
+    dots += '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="2" fill="var(--text-faint)"/>';
+    pathD += (pen ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1);
+    pen = true;
+  });
+  return '<svg class="bilan-spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">'
+    + (pathD ? '<path d="' + pathD + '" fill="none" stroke="var(--teal)" stroke-width="1.5"/>' : '')
+    + dots + '</svg>';
+}
+
+// Carte générique pour humeur et anxiété. lowerIsBetter inverse la couleur du delta.
+function bilanMetricCard(label, m, lowerIsBetter, extraHtml){
+  let big, cls, sub;
+  if(m.delta !== null){
+    const good = lowerIsBetter ? m.delta <= -BILAN_FLAT : m.delta >= BILAN_FLAT;
+    const bad  = lowerIsBetter ? m.delta >= BILAN_FLAT : m.delta <= -BILAN_FLAT;
+    cls = good ? 'good' : (bad ? 'bad' : 'flat');
+    big = bilanFmtDelta(m.delta);
+    sub = 'moy. ' + bilanFmt(m.avg) + '/10 sur ' + m.n + ' j (' + bilanFmt(m.prevAvg) + ' la semaine précédente)';
+  } else if(m.avg !== null){
+    cls = 'flat';
+    big = bilanFmt(m.avg) + '/10';
+    sub = 'sur ' + m.n + ' j, pas assez de saisies la semaine précédente pour comparer (' + m.prevN + ' j)';
+  } else {
+    cls = 'flat';
+    big = '—';
+    sub = 'pas assez de données (' + m.n + ' j saisis sur 7)';
+  }
+  return '<div class="stats-card bilan-card">'
+    + '<div class="bilan-label">' + label + '</div>'
+    + '<div class="bilan-delta ' + cls + '">' + big + '</div>'
+    + '<div class="bilan-sub">' + sub + '</div>'
+    + (extraHtml || '') + '</div>';
+}
+
+function renderBilan(c, entries){
+  const today = logicalDateStr();
+  const b = computeBilan(entries, today);
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+
+  let cards = '';
+
+  // Humeur (avec mini-courbe 14 j) et anxiété
+  cards += bilanMetricCard('Humeur', b.mood, false, bilanSparkSvg(b.spark));
+  cards += bilanMetricCard('Anxiété', b.anxiety, true);
+
+  // Sommeil : durée moyenne + régularité, pas de delta
+  if(b.sleep.avgMin !== null){
+    const reg = b.sleep.sdMin !== null ? '± ' + Math.round(b.sleep.sdMin) + ' min de régularité, ' : '';
+    cards += '<div class="stats-card bilan-card">'
+      + '<div class="bilan-label">Sommeil (durée)</div>'
+      + '<div class="bilan-delta flat">' + bilanFmtHours(b.sleep.avgMin) + '</div>'
+      + '<div class="bilan-sub">moyenne 7 jours (' + reg + b.sleep.n + ' j saisis)</div></div>';
+  } else {
+    cards += '<div class="stats-card bilan-card">'
+      + '<div class="bilan-label">Sommeil (durée)</div>'
+      + '<div class="bilan-delta flat">—</div>'
+      + '<div class="bilan-sub">pas assez de données (' + b.sleep.n + ' j saisis sur 7)</div></div>';
+  }
+
+  // Idéations : discret si zéro partout, carte sinon
+  const s = b.suicidal;
+  let ideationQuiet = '';
+  if(s.days === 0 && s.prevDays === 0 && s.n > 0 && s.prevN > 0){
+    ideationQuiet = '<div class="bilan-quiet">Idéations : aucune sur les 28 derniers jours (' + (s.n + s.prevN) + ' soirs saisis).</div>';
+  } else {
+    const diff = s.days - s.prevDays;
+    const enough = s.n >= BILAN_IDEATION_MIN_DAYS && s.prevN >= BILAN_IDEATION_MIN_DAYS;
+    const cls = !enough ? 'flat' : (diff <= -BILAN_IDEATION_FLAT ? 'good' : (diff >= BILAN_IDEATION_FLAT ? 'bad' : 'flat'));
+    const sub = enough
+      ? 'jours avec idéations sur 14 j (' + s.prevDays + ' j les 14 précédents)'
+      : 'sur ' + s.n + ' soirs saisis en 14 j, trop peu pour comparer';
+    cards += '<div class="stats-card bilan-card">'
+      + '<div class="bilan-label">Idéations</div>'
+      + '<div class="bilan-delta ' + cls + '">' + s.days + ' j</div>'
+      + '<div class="bilan-sub">' + sub + '</div></div>';
+  }
+
+  // Synthèse
+  const fmtItem = it => it.key === 'suicidal'
+    ? it.label + ' (' + it.days + ' j contre ' + it.prevDays + ')'
+    : it.label + ' (' + bilanFmtDelta(it.delta) + ')';
+  let summaryHtml = '';
+  if(b.summary.improving.length || b.summary.worsening.length){
+    if(b.summary.improving.length) summaryHtml += '<div class="bilan-line good">S\'améliore : ' + b.summary.improving.map(fmtItem).join(', ') + '</div>';
+    if(b.summary.worsening.length) summaryHtml += '<div class="bilan-line bad">À surveiller : ' + b.summary.worsening.map(fmtItem).join(', ') + '</div>';
+  } else if(b.summary.comparable){
+    summaryHtml = '<div class="bilan-line flat">Stable par rapport à la semaine précédente.</div>';
+  }
+  if(summaryHtml) summaryHtml = '<div class="stats-card bilan-summary">' + summaryHtml + '</div>';
+
+  sec.innerHTML = '<h3>Bilan : 7 derniers jours vs 7 précédents</h3>'
+    + '<div class="bilan-grid">' + cards + '</div>'
+    + ideationQuiet
+    + summaryHtml
+    + '<div class="home-note">Ce bilan met en avant le changement plutôt que le niveau absolu : c\'est la direction qui informe, pas la valeur d\'un soir. Les jours non saisis sont simplement ignorés.</div>';
+  c.appendChild(sec);
 }
 
 function renderCurves(c, entries){
