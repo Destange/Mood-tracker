@@ -338,7 +338,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
       <div class="home-stats-grid">
         <div class="home-stat"><div class="num" id="stat-mood">—</div><div class="lbl">Humeur <span id="trend-mood"></span></div></div>
         <div class="home-stat"><div class="num" id="stat-anxiety">—</div><div class="lbl">Anxiété <span id="trend-anxiety"></span></div></div>
-        <div class="home-stat"><div class="num" id="stat-sleep">—</div><div class="lbl">Sommeil <span id="trend-sleep"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-sleep">—</div><div class="lbl">Sommeil (qual.) <span id="trend-sleep"></span></div></div>
         <div class="home-stat"><div class="num" id="stat-energy">—</div><div class="lbl">Énergie <span id="trend-energy"></span></div></div>
         <div class="home-stat"><div class="num" id="stat-fog">—</div><div class="lbl">Brouillard <span id="trend-fog"></span></div></div>
         <div class="home-stat"><div class="num" id="stat-blunting">—</div><div class="lbl">Sensib. émot. <span id="trend-blunting"></span></div></div>
@@ -466,6 +466,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
         <button class="btn btn-secondary" id="btn-import">Importer un JSON</button>
         <input type="file" id="import-file" accept=".json" style="display:none">
       </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--text-dim)"><input type="checkbox" id="archive-toggle"> Proposer une archive JSON tous les 7 jours</label>
     </div>
 
     <div class="settings-section">
@@ -517,7 +518,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.8.3';
+const VERSION = '1.9.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -562,6 +563,7 @@ function loadData(){
     if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
     if(!state.data.settings.history_view) state.data.settings.history_view = 'list';
+    if(state.data.settings.archive_prompt_enabled === undefined) state.data.settings.archive_prompt_enabled = true;
     if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
     // Migration ponctuelle : tags d'activités renommés (idempotent, sans doublon)
     const TAG_RENAMES = {'Hyperactivité': 'Hyperactif', 'Trajet Bus': 'Bus', 'Trajet Train': 'Train', 'Trajet Vélo': 'Vélo', 'Trajet Voiture': 'Voiture'};
@@ -606,6 +608,7 @@ function defaultData(){
       treatment_start: '2026-01-27',
       skin: 'minuit',
       history_view: 'list',
+      archive_prompt_enabled: true,
       reminders: {
         wake:  {enabled: true, time: '15:00'},
         sleep: {enabled: true, time: '01:00'}
@@ -648,14 +651,15 @@ const FIELD_DEFS = {
   energy: {type:'integer-0-10', label:"Énergie du jour, bilan (0=épuisé, 10=disponible)"},
   anxiety: {type:'integer-0-10', label:"Anxiété du jour, bilan (0=aucune, 10=très intense)"},
   brain_fog: {type:'integer-0-10', label:"Brouillard mental, bilan journée (0=clair, 10=très embrumé)"},
-  blunting: {type:'integer--5-5', label:"Sensibilité émotionnelle (−5=absent, 0=neutre, +5=hypersensible)"},
-  mood_evening: {type:'integer-0-10', label:"Appréciation de la journée (0=très mauvaise, 10=très bonne)"},
+  blunting: {type:'integer--5-5', label:"Sensibilité émotionnelle (−5=émoussé/anesthésié, 0=neutre, +5=à fleur de peau)"},
+  libido: {type:'enum', values:['absente','diminuee','normale'], label:"Libido, par rapport à la normale personnelle"},
+  mood_evening: {type:'integer-0-10', label:"Humeur du jour (0=très basse, 10=très haute). Avant v1.9.0 : appréciation globale de la journée"},
   suicidal: {type:'enum', values:['aucune','fugaces','presentes','intenses'], label:"Idéations suicidaires"},
   suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
   rgo: {type:'boolean', label:"RGO présent"},
   rgo_intensity: {type:'integer-0-10', label:"Intensité du RGO si présent"},
   side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
-  side_effects_other: {type:'text', label:"Précision si 'autre' coché"},
+  side_effects_other: {type:'text', label:"Précision de l'ancien tag 'autre' (héritage)"},
   positive_feelings: {type:'array-enum', label:"Ressentis positifs de la journée"},
   cafes_count: {type:'integer-0+', label:"Nombre de cafés dans la journée"},
   alcohol_units: {type:'number', label:"Verres d'alcool dans la journée"},
@@ -731,7 +735,7 @@ const SIDE_EFFECT_LABELS = {
 };
 
 // Tags retirés de la saisie mais conservés ici pour l'affichage des anciennes entrées
-const SIDE_EFFECT_HIDDEN = ['asthenie', 'eruption_cutanee', 'somnolence'];
+const SIDE_EFFECT_HIDDEN = ['asthenie', 'eruption_cutanee', 'somnolence', 'brain_zaps', 'fievre', 'frissons', 'cordes_vocales', 'brouillard_mental', 'cauchemars'];
 
 const SKINS = {
   minuit:    { name:'Minuit',     desc:'Bleu nuit · Teal',       bg:'#0f1419',bg2:'#161c23',bg3:'#1f2730',bg4:'#2a3441',border:'#2a3441',text:'#e4e7eb',dim:'#9aa5b1',faint:'#6b7785',accent:'#4ecdc4',accentDim:'#2a8a83',amber:'#f5a623',amberDim:'#a06e15' },
@@ -743,13 +747,13 @@ const SKINS = {
 };
 
 const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','weight','note_morning'];
-const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','social_media','side_effects','positive_feelings','energy','brain_fog','anxiety','activities','physical_activity','suicidal','blunting','notable_event','mood_evening','note'];
+const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
 const STEP_LABELS = {
   sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
   dreams:'Rêves & cauchemars', mood_morning:'Humeur au réveil',
   weight:'Poids', note_morning:'Note du matin',
   meds:'Médicaments', cafes_alcohol:'Cafés & alcool', energy:'Énergie globale', anxiety:'Anxiété', brain_fog:'Brouillard mental (journée)',
-  blunting:'Sensibilité émotionnelle', mood_evening:'Humeur globale', suicidal:'Pensées suicidaires',
+  blunting:'Sensibilité émotionnelle', libido:'Libido', mood_evening:'Humeur du jour', suicidal:'Pensées suicidaires',
   rgo:'Reflux (RGO)', side_effects:'Ressentis négatifs', positive_feelings:'Ressentis positifs ✨',
   activities:'Activités du jour', physical_activity:'Activité physique', social_media:'Réseaux sociaux', notable_event:'Événement marquant', note:'Note libre'
 };
@@ -951,17 +955,20 @@ function logicalDateStr(){
    ============================================================ */
 
 const MORNING_STEPS = [
-  'date', 'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'weight', 'note_morning', 'recap'
+  'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'weight', 'note_morning', 'recap'
 ];
+/* Soir, en 4 blocs : corps et consommations, etats internes, comportements, synthese */
 const EVENING_STEPS = [
-  'date', 'meds', 'cafes_alcohol', 'rgo', 'social_media', 'side_effects', 'positive_feelings', 'energy', 'brain_fog', 'anxiety', 'activities', 'physical_activity', 'suicidal', 'blunting', 'notable_event', 'mood_evening', 'note', 'recap'
+  'meds', 'cafes_alcohol', 'rgo', 'energy', 'brain_fog', 'anxiety', 'blunting', 'libido', 'suicidal', 'activities', 'physical_activity', 'social_media', 'side_effects', 'positive_feelings', 'notable_event', 'mood_evening', 'note', 'recap'
 ];
+/* Saisie minimale du soir : l'essentiel, le reste reste vide (null) */
+const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 'note', 'recap'];
 
 /* ===== SYNC-PURE-BEGIN (logique de fusion, testée dans node) ===== */
 
 /* Listes officielles des champs par session (source unique : blankEntry) */
 const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
-const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
 
@@ -1099,7 +1106,7 @@ function blankEntry(date){
     sleep_bedtime: '',
     sleep_waketime: '',
     sleep_duration_min: 0,
-    sleep_quality: 5,
+    sleep_quality: null, // reponse obligatoire en saisie, pas de valeur fabriquee
     wake_count: 0,
     dream_quality: null,
     nightmare: false,
@@ -1113,11 +1120,12 @@ function blankEntry(date){
     paroxetine_mg: 0, // traitement termine : plus de saisie, champ conserve pour l'historique
     mianserine_mg: state.data.settings.defaults.mianserine_mg,
     oxazepam_mg: 0,
-    energy: 5,
-    anxiety: 0,
-    brain_fog: 0,
-    blunting: 0,
-    mood_evening: 5,
+    energy: null,
+    anxiety: null,
+    brain_fog: null,
+    blunting: null,
+    libido: null,
+    mood_evening: null,
     suicidal: 'aucune',
     suicidal_note: '',
     rgo: false,
@@ -1156,11 +1164,57 @@ function autoDetectSession(entry){
   return (h >= 20 || h < 6) ? 'evening' : 'morning';
 }
 
+function editEntryDate(){
+  showModal('<h3>Date de la saisie</h3>'
+    + '<p>Corrige la date si tu remplis pour un autre jour.</p>'
+    + '<input type="date" id="entry-date-input" value="' + state.entryDraft.date + '" max="' + todayStr() + '">'
+    + '<div class="modal-actions" style="margin-top:14px">'
+    + '<button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
+    + '<button class="btn btn-primary" onclick="applyEntryDate()">Valider</button>'
+    + '</div>');
+}
+window.applyEntryDate = function(){
+  const inp = document.getElementById('entry-date-input');
+  if(inp && inp.value){ state.entryDraft.date = inp.value; }
+  closeModal();
+  renderEntryStep();
+};
+/* Champs non poses en saisie minimale : vides (null), pas de faux zeros.
+   Exception voulue : la mianserine reste a la dose par defaut (routine quotidienne). */
+const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','libido','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
+function startMinimalEvening(){
+  MINIMAL_NULL_FIELDS.forEach(f => { state.entryDraft[f] = null; });
+  const hasQn = state.entrySteps[0] === 'quicknotes_review';
+  state.entrySteps = hasQn ? ['quicknotes_review', ...EVENING_MINIMAL_STEPS] : [...EVENING_MINIMAL_STEPS];
+  state.entryStep = 0;
+  renderEntryStep();
+  toast('Saisie minimale : 4 questions et une note.', 'success');
+}
+
 function renderEntryStep(){
   const step = state.entrySteps[state.entryStep];
   const total = state.entrySteps.length;
   const c = document.getElementById('entry-step-container');
   c.innerHTML = '';
+  document.getElementById('entry-next').disabled = false;
+  // Rappel discret de la date (remplace l'ancien ecran "Quel jour ?") + acces saisie minimale le soir
+  if(!state.singleStepEdit && state.entryStep === 0){
+    const dr = document.createElement('div');
+    dr.style.cssText = 'display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;font-size:13px;color:var(--text-dim)';
+    let inner = '<span>Saisie pour <strong style="color:var(--text)">' + escapeHtml(formatDate(state.entryDraft.date)) + '</strong></span>'
+      + '<button class="btn btn-secondary" id="entry-date-edit" style="padding:4px 10px;font-size:12px;min-height:0">Modifier</button>';
+    if(state.entrySession === 'evening' && !state.entryDraft.evening_done && state.entrySteps.indexOf('rgo') !== -1){
+      inner += '<button class="btn btn-secondary" id="entry-minimal-btn" style="padding:4px 10px;font-size:12px;min-height:0;margin-left:auto">Saisie minimale</button>';
+    }
+    dr.innerHTML = inner;
+    c.appendChild(dr);
+    setTimeout(()=>{
+      const de = document.getElementById('entry-date-edit');
+      if(de) de.onclick = editEntryDate;
+      const mb = document.getElementById('entry-minimal-btn');
+      if(mb) mb.onclick = startMinimalEvening;
+    },0);
+  }
   c.appendChild(buildStep(step));
   if(state.singleStepEdit){
     document.getElementById('entry-progress-bar').style.width = '100%';
@@ -1190,17 +1244,6 @@ function stepWrap(num, title, help){
 function buildStep(step){
   const idx = state.entrySteps.indexOf(step);
   const d = state.entryDraft;
-
-  if(step === 'date'){
-    const w = stepWrap(idx, "Quel jour ?", "Tu peux corriger la date si tu remplis pour un jour précédent.");
-    const input = document.createElement('input');
-    input.type = 'date';
-    input.value = d.date;
-    input.max = todayStr();
-    input.addEventListener('change', e => { d.date = e.target.value; });
-    w.appendChild(input);
-    return w;
-  }
 
   if(step === 'sleep_schedule'){
     const w = stepWrap(idx, "Horaires de sommeil", "Heure de coucher hier soir et heure de lever ce matin.");
@@ -1254,45 +1297,83 @@ function buildStep(step){
       energy: ["Énergie globale aujourd'hui ?", "Ressenti global de la journée. 0 = épuisé, 10 = pleinement disponible."],
       anxiety: ["Anxiété aujourd'hui ?", "Bilan de la journée. 0 = aucune, 10 = très intense."],
       brain_fog: ["Brouillard mental dans la journée ?", "Ressenti moyen de la journée. 0 = esprit clair, 10 = très embrumé."],
-      mood_evening: ["Humeur globale de la journée ?", "0 = très mauvaise journée, 10 = très bonne. Pondère tout ce qui s'est passé."]
+      mood_evening: ["Ton humeur aujourd'hui ?", "0 = très basse, 10 = très haute. L'humeur ressentie, pas la réussite de la journée."]
     };
     const w = stepWrap(idx, titles[step][0], titles[step][1]);
     const sw = document.createElement('div');
     sw.className = 'slider-wrap';
+    const hasVal = (d[step] !== null && d[step] !== undefined);
     sw.innerHTML = `
-      <div class="slider-value" id="sv-${step}">${d[step]}</div>
-      <input type="range" min="0" max="10" step="1" value="${d[step]}" id="sl-${step}">
+      <div class="slider-value" id="sv-${step}">${hasVal ? d[step] : '—'}</div>
+      <input type="range" min="0" max="10" step="1" value="${hasVal ? d[step] : 5}" id="sl-${step}">
       <div class="slider-labels"><span>0</span><span>5</span><span>10</span></div>`;
     w.appendChild(sw);
     setTimeout(()=>{
       const sl = document.getElementById('sl-'+step);
       const sv = document.getElementById('sv-'+step);
-      sl.addEventListener('input', e=>{
-        d[step] = parseInt(e.target.value);
+      const commit = () => {
+        d[step] = parseInt(sl.value);
         sv.textContent = d[step];
-      });
+        document.getElementById('entry-next').disabled = false;
+      };
+      if(!hasVal) document.getElementById('entry-next').disabled = true;
+      sl.addEventListener('input', commit);
+      sl.addEventListener('click', commit);
     },0);
     return w;
   }
 
   if(step === 'blunting'){
-    const w = stepWrap(idx, "Sensibilité émotionnelle ?", "−5 = absent (anesthésié), 0 = neutre, +5 = hypersensible.");
+    const w = stepWrap(idx, "Sensibilité émotionnelle ?", "−5 = émoussé, anesthésié · 0 = neutre · +5 = à fleur de peau.");
     const sw = document.createElement('div');
     sw.className = 'slider-wrap';
     const val = d.blunting;
-    const dispVal = val > 0 ? '+'+val : String(val);
+    const hasVal = (val !== null && val !== undefined);
+    const dispVal = !hasVal ? '—' : (val > 0 ? '+'+val : String(val));
     sw.innerHTML = `
       <div class="slider-value" id="sv-blunting">${dispVal}</div>
-      <input type="range" min="-5" max="5" step="1" value="${val}" id="sl-blunting">
+      <input type="range" min="-5" max="5" step="1" value="${hasVal ? val : 0}" id="sl-blunting">
       <div class="slider-labels"><span>−5</span><span>0</span><span>+5</span></div>`;
     w.appendChild(sw);
     setTimeout(()=>{
       const sl = document.getElementById('sl-blunting');
       const sv = document.getElementById('sv-blunting');
-      sl.addEventListener('input', e=>{
-        d.blunting = parseInt(e.target.value);
+      const commit = () => {
+        d.blunting = parseInt(sl.value);
         sv.textContent = d.blunting > 0 ? '+'+d.blunting : String(d.blunting);
-      });
+        document.getElementById('entry-next').disabled = false;
+      };
+      if(!hasVal) document.getElementById('entry-next').disabled = true;
+      sl.addEventListener('input', commit);
+      sl.addEventListener('click', commit);
+    },0);
+    return w;
+  }
+
+  if(step === 'libido'){
+    const w = stepWrap(idx, "Libido aujourd'hui ?", "Par rapport à ce qui est normal pour toi.");
+    const opts = [
+      {v:'absente',  t:"Absente",  s:"Aucun désir."},
+      {v:'diminuee', t:"Diminuée", s:"Présente mais en retrait."},
+      {v:'normale',  t:"Normale",  s:"Comme d'habitude pour toi."}
+    ];
+    const cards = document.createElement('div');
+    cards.className = 'radio-cards';
+    opts.forEach(o=>{
+      const card = document.createElement('div');
+      card.className = 'radio-card' + (d.libido === o.v ? ' selected' : '');
+      card.innerHTML = `<div class="indicator"></div><div class="text"><strong>${o.t}</strong><small>${o.s}</small></div>`;
+      card.onclick = ()=>{
+        d.libido = o.v;
+        cards.querySelectorAll('.radio-card').forEach(c=>c.classList.remove('selected'));
+        card.classList.add('selected');
+        document.getElementById('entry-next').disabled = false;
+      };
+      cards.appendChild(card);
+    });
+    w.appendChild(cards);
+    setTimeout(()=>{
+      if(d.libido == null) document.getElementById('entry-next').disabled = true;
     },0);
     return w;
   }
@@ -1366,7 +1447,7 @@ function buildStep(step){
   }
 
   if(step === 'suicidal'){
-    const w = stepWrap(idx, "Idéations suicidaires aujourd'hui ?", "Important pour le suivi. Personne ne lit cette donnée à part toi.");
+    const w = stepWrap(idx, "Idéations suicidaires aujourd'hui ?", "Important pour le suivi. Cette donnée reste dans l'app et dans tes exports : toi seul décides à qui les montrer.");
     const opts = [
       {v:'aucune', t:"Aucune", s:"Pas de pensée de ce type."},
       {v:'fugaces', t:"Fugaces", s:"Pensées brèves, qui passent vite."},
@@ -1418,7 +1499,7 @@ function buildStep(step){
         <div class="desc">Au coucher</div>
         <div class="num-input">
           <button onclick="medAdjust('mianserine_mg',-10)">−</button>
-          <input type="number" id="m-mian" value="${d.mianserine_mg}" min="0" step="10">
+          <input type="number" id="m-mian" value="${d.mianserine_mg ?? ''}" min="0" step="10">
           <span class="unit">mg</span>
           <button onclick="medAdjust('mianserine_mg',10)">+</button>
         </div>
@@ -1428,7 +1509,7 @@ function buildStep(step){
         <div class="desc">Total de la journée (5 mg = ½ cp, 10 mg = 1 cp)</div>
         <div class="num-input">
           <button onclick="medAdjust('oxazepam_mg',-5)">−</button>
-          <input type="number" id="m-oxa" value="${d.oxazepam_mg}" min="0" step="5">
+          <input type="number" id="m-oxa" value="${d.oxazepam_mg ?? ''}" min="0" step="5">
           <span class="unit">mg</span>
           <button onclick="medAdjust('oxazepam_mg',5)">+</button>
         </div>
@@ -1488,29 +1569,48 @@ function buildStep(step){
 
   if(step === 'side_effects'){
     const w = stepWrap(idx, "Ressentis négatifs de la journée", "Coche tous ceux qui s'appliquent.");
-    const chips = document.createElement('div');
-    chips.className = 'chips';
-
+    const SIDE_EFFECT_GROUPS = [
+      {label: 'Corps', keys: ['bouche_seche','constipation','courbatures','diarrhee','fatigue_generale','grande_faim','grignotages','mal_tete','nausees','pas_appetit','tremblements','vertiges']},
+      {label: 'Émotions', keys: ['deconnecte','desespoir_profond','irritabilite','pleurs']}
+    ];
     const predefinedKeys = Object.keys(SIDE_EFFECT_LABELS);
-
+    const groupWraps = [];
+    SIDE_EFFECT_GROUPS.forEach(g => {
+      const lab = document.createElement('div');
+      lab.className = 'activities-cat-label';
+      lab.textContent = g.label;
+      w.appendChild(lab);
+      const chips = document.createElement('div');
+      chips.className = 'chips';
+      w.appendChild(chips);
+      groupWraps.push({g, chips});
+    });
+    const customLabel = document.createElement('div');
+    customLabel.className = 'activities-cat-label';
+    customLabel.textContent = 'Autre';
+    w.appendChild(customLabel);
+    const customChips = document.createElement('div');
+    customChips.className = 'chips';
+    w.appendChild(customChips);
     const renderChips = () => {
-      chips.innerHTML = '';
-      // Chips prédéfinis (les tags masqués ne sont plus proposés)
-      Object.entries(SIDE_EFFECT_LABELS).forEach(([k,v])=>{
-        if(SIDE_EFFECT_HIDDEN.includes(k)) return;
-        const c = document.createElement('div');
-        c.className = 'chip' + (d.side_effects.includes(k) ? ' selected' : '');
-        c.textContent = v;
-        c.onclick = ()=>{
-          const i = d.side_effects.indexOf(k);
-          if(i >= 0) d.side_effects.splice(i, 1);
-          else d.side_effects.push(k);
-          c.classList.toggle('selected');
-        };
-        chips.appendChild(c);
+      groupWraps.forEach(({g, chips}) => {
+        chips.innerHTML = '';
+        g.keys.forEach(k => {
+          if(SIDE_EFFECT_HIDDEN.includes(k)) return;
+          const c = document.createElement('div');
+          c.className = 'chip' + (d.side_effects.includes(k) ? ' selected' : '');
+          c.textContent = SIDE_EFFECT_LABELS[k] || k;
+          c.onclick = ()=>{
+            const i = d.side_effects.indexOf(k);
+            if(i >= 0) d.side_effects.splice(i, 1);
+            else d.side_effects.push(k);
+            c.classList.toggle('selected');
+          };
+          chips.appendChild(c);
+        });
       });
-      // Chips libres (tags custom). L'ancien 'autre' d'une vieille entrée
-      // s'affiche avec son texte de précision et reste supprimable.
+      // Tags libres + anciens tags masques ou 'autre' : affiches s'ils sont coches, supprimables
+      customChips.innerHTML = '';
       d.side_effects.filter(k => !predefinedKeys.includes(k) || SIDE_EFFECT_HIDDEN.includes(k)).forEach(tag => {
         const c = document.createElement('div');
         c.className = 'chip selected';
@@ -1521,12 +1621,10 @@ function buildStep(step){
           if(i >= 0) d.side_effects.splice(i, 1);
           renderChips();
         };
-        chips.appendChild(c);
+        customChips.appendChild(c);
       });
     };
     renderChips();
-    w.appendChild(chips);
-
     // Champ d'ajout de tag libre (même système que les ressentis positifs)
     const addRow = document.createElement('div');
     addRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
@@ -1774,7 +1872,7 @@ if(step === 'positive_feelings'){
       <div>
         <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">L-Tyrosine</div>
         <div style="display:flex;gap:8px;justify-content:center">
-          ${[0,500,1000].map(v=>'<button id="ca-ltyr-'+v+'" class="btn'+(( (d.ltyrosine_mg??1000)===v)?' btn-primary':' btn-secondary')+'" style="min-width:70px">'+v+' mg</button>').join('')}
+          ${[0,500,1000].map(v=>'<button id="ca-ltyr-'+v+'" class="btn'+((d.ltyrosine_mg===v)?' btn-primary':' btn-secondary')+'" style="min-width:70px">'+v+' mg</button>').join('')}
         </div>
       </div>`;
     w.appendChild(grid);
@@ -1784,16 +1882,16 @@ if(step === 'positive_feelings'){
       const gi = document.getElementById('ca-gav');
       const pi = document.getElementById('ca-panto');
       document.getElementById('ca-minus-c').onclick = ()=>{ if(d.cafes_count>0){d.cafes_count--; ci.value=d.cafes_count;} };
-      document.getElementById('ca-plus-c').onclick  = ()=>{ d.cafes_count++; ci.value=d.cafes_count; };
+      document.getElementById('ca-plus-c').onclick  = ()=>{ d.cafes_count=(d.cafes_count||0)+1; ci.value=d.cafes_count; };
       ci.oninput = e=>{ d.cafes_count = Math.max(0,parseInt(e.target.value)||0); };
       document.getElementById('ca-minus-a').onclick = ()=>{ if(d.alcohol_units>0){d.alcohol_units=Math.max(0,+(d.alcohol_units-.5).toFixed(1)); ai.value=d.alcohol_units;} };
-      document.getElementById('ca-plus-a').onclick  = ()=>{ d.alcohol_units=+(d.alcohol_units+.5).toFixed(1); ai.value=d.alcohol_units; };
+      document.getElementById('ca-plus-a').onclick  = ()=>{ d.alcohol_units=+(((d.alcohol_units||0))+.5).toFixed(1); ai.value=d.alcohol_units; };
       ai.oninput = e=>{ d.alcohol_units = Math.max(0,parseFloat(e.target.value)||0); };
       document.getElementById('ca-minus-g').onclick = ()=>{ if(d.gaviscon_doses>0){d.gaviscon_doses--; gi.value=d.gaviscon_doses;} };
-      document.getElementById('ca-plus-g').onclick  = ()=>{ d.gaviscon_doses++; gi.value=d.gaviscon_doses; };
+      document.getElementById('ca-plus-g').onclick  = ()=>{ d.gaviscon_doses=(d.gaviscon_doses||0)+1; gi.value=d.gaviscon_doses; };
       gi.oninput = e=>{ d.gaviscon_doses = Math.max(0,parseInt(e.target.value)||0); };
       document.getElementById('ca-minus-p').onclick = ()=>{ if(d.pantoprazole_doses>0){d.pantoprazole_doses--; pi.value=d.pantoprazole_doses;} };
-      document.getElementById('ca-plus-p').onclick  = ()=>{ d.pantoprazole_doses++; pi.value=d.pantoprazole_doses; };
+      document.getElementById('ca-plus-p').onclick  = ()=>{ d.pantoprazole_doses=(d.pantoprazole_doses||0)+1; pi.value=d.pantoprazole_doses; };
       pi.oninput = e=>{ d.pantoprazole_doses = Math.max(0,parseInt(e.target.value)||0); };
       [0,500,1000].forEach(v=>{
         document.getElementById('ca-ltyr-'+v).onclick = ()=>{
@@ -1854,13 +1952,13 @@ if(step === 'positive_feelings'){
       {v:180, t:"~ 3 heures", s:"Utilisation importante."},
       {v:240, t:"3 heures +", s:"Utilisation très élevée."}
     ];
-    const cur = d.social_media_min || 0;
-    const closest = smOpts.reduce((best, o) => Math.abs(o.v - cur) < Math.abs(best.v - cur) ? o : best, smOpts[0]);
+    const cur = d.social_media_min;
+    const closest = cur == null ? null : smOpts.reduce((best, o) => Math.abs(o.v - cur) < Math.abs(best.v - cur) ? o : best, smOpts[0]);
     const cards = document.createElement('div');
     cards.className = 'radio-cards';
     smOpts.forEach(o => {
       const card = document.createElement('div');
-      card.className = 'radio-card' + (o.v === closest.v ? ' selected' : '');
+      card.className = 'radio-card' + (closest && o.v === closest.v ? ' selected' : '');
       card.innerHTML = '<div class="indicator"></div><div class="text"><strong>'+o.t+'</strong><small>'+o.s+'</small></div>';
       card.onclick = () => {
         d.social_media_min = o.v;
@@ -1956,18 +2054,17 @@ if(step === 'positive_feelings'){
       if(d.weight_kg) rows.push(['Poids', d.weight_kg + ' kg']);
       if(d.note_morning) rows.push(['Note', d.note_morning]);
     } else {
-      rows = [
-        ['Date', formatDate(d.date)],
-        ['Miansérine', `${d.mianserine_mg} mg`],
-        ['Oxazépam', `${d.oxazepam_mg} mg`],
-        ['Énergie globale', `${d.energy}/10`],
-        ['Anxiété', `${d.anxiety}/10`],
-        ['Brouillard (journée)', `${d.brain_fog}/10`],
-        ['Sensibilité émotionnelle', `${d.blunting > 0 ? '+' : ''}${d.blunting}`],
-        ['Humeur globale', `${d.mood_evening}/10`],
-        ['Idéations', suicidalLabel(d.suicidal)],
-        ['RGO', d.rgo ? `Oui (${d.rgo_intensity}/10)` : 'Non']
-      ];
+      rows = [['Date', formatDate(d.date)]];
+      if(typeof d.mianserine_mg === 'number') rows.push(['Miansérine', `${d.mianserine_mg} mg`]);
+      if(typeof d.oxazepam_mg === 'number') rows.push(['Oxazépam', `${d.oxazepam_mg} mg`]);
+      if(typeof d.energy === 'number') rows.push(['Énergie globale', `${d.energy}/10`]);
+      if(typeof d.anxiety === 'number') rows.push(['Anxiété', `${d.anxiety}/10`]);
+      if(typeof d.brain_fog === 'number') rows.push(['Brouillard (journée)', `${d.brain_fog}/10`]);
+      if(typeof d.blunting === 'number') rows.push(['Sensibilité émotionnelle', `${d.blunting > 0 ? '+' : ''}${d.blunting}`]);
+      if(d.libido) rows.push(['Libido', libidoLabel(d.libido)]);
+      if(typeof d.mood_evening === 'number') rows.push(['Humeur', `${d.mood_evening}/10`]);
+      rows.push(['Idéations', suicidalLabel(d.suicidal)]);
+      if(d.rgo !== null && d.rgo !== undefined) rows.push(['RGO', d.rgo ? `Oui (${d.rgo_intensity}/10)` : 'Non']);
       if(d.side_effects.length > 0){
         const labels = d.side_effects.map(s => s === 'autre' ? (d.side_effects_other||'autre') : (SIDE_EFFECT_LABELS[s] || s));
         rows.push(['Ressentis négatifs', labels.join(', ')]);
@@ -1984,8 +2081,8 @@ if(step === 'positive_feelings'){
       if(d.activities && d.activities.length > 0){
         rows.push(['Activités', d.activities.join(', ')]);
       }
-      rows.push(['Activité physique', ({0:'0 · Sédentaire',1:'1 · Légèrement actif',2:'2 · Actif',3:'3 · Cardio'})[d.physical_activity] || '0']);
-      { const t=d.social_media_min||0; rows.push(['Réseaux sociaux', t===0?'Aucun':`${Math.floor(t/60)}h${String(t%60).padStart(2,'0')}`]); }
+      if(d.physical_activity !== null && d.physical_activity !== undefined) rows.push(['Activité physique', ({0:'0 · Sédentaire',1:'1 · Légèrement actif',2:'2 · Actif',3:'3 · Cardio'})[d.physical_activity] || '0']);
+      if(d.social_media_min !== null && d.social_media_min !== undefined){ const t=d.social_media_min; rows.push(['Réseaux sociaux', t===0?'Aucun':`${Math.floor(t/60)}h${String(t%60).padStart(2,'0')}`]); }
       if(d.notable_event) rows.push(['Événement', d.notable_event_text || '—']);
       if(d.free_note) rows.push(['Note', d.free_note]);
     }
@@ -2009,6 +2106,10 @@ window.medAdjust = function(field, delta){
 
 function suicidalLabel(v){
   return {aucune:'Aucune', fugaces:'Fugaces', presentes:'Présentes', intenses:'Intenses'}[v] || v;
+}
+
+function libidoLabel(v){
+  return {absente:'Absente', diminuee:'Diminuée', normale:'Normale'}[v] || v;
 }
 
 function formatDate(s){
@@ -2194,20 +2295,21 @@ function formatStepValue(e, step){
     case 'energy_morning': return e.energy_morning != null ? `${e.energy_morning}/10` : dash;
     case 'weight': return e.weight_kg != null ? `${e.weight_kg} kg` : dash;
     case 'note_morning': return e.note_morning ? `"${e.note_morning.slice(0,35)}${e.note_morning.length>35?'…':''}"` : dash;
-    case 'meds': return `${e.paroxetine_mg ? 'Parox. ' + e.paroxetine_mg + 'mg · ' : ''}Mians. ${e.mianserine_mg}mg · Oxa. ${e.oxazepam_mg}mg`;
+    case 'meds': { const m=[]; if(e.paroxetine_mg) m.push('Parox. '+e.paroxetine_mg+'mg'); if(typeof e.mianserine_mg==='number') m.push('Mians. '+e.mianserine_mg+'mg'); if(typeof e.oxazepam_mg==='number') m.push('Oxa. '+e.oxazepam_mg+'mg'); return m.length ? m.join(' · ') : dash; }
     case 'energy': return e.energy != null ? `${e.energy}/10` : dash;
     case 'anxiety': return e.anxiety != null ? `${e.anxiety}/10` : dash;
     case 'brain_fog': return e.brain_fog != null ? `${e.brain_fog}/10` : dash;
     case 'blunting': return e.blunting != null ? `${e.blunting>=0?'+':''}${e.blunting}` : dash;
+    case 'libido': return e.libido ? libidoLabel(e.libido) : dash;
     case 'mood_evening': return e.mood_evening != null ? `${e.mood_evening}/10` : dash;
     case 'suicidal': return suicidalLabel(e.suicidal) || dash;
-    case 'rgo': return e.rgo ? `Oui${e.rgo_intensity ? ' ('+e.rgo_intensity+'/10)' : ''}` : 'Non';
+    case 'rgo': return e.rgo==null ? dash : (e.rgo ? `Oui${e.rgo_intensity ? ' ('+e.rgo_intensity+'/10)' : ''}` : 'Non');
     case 'side_effects': return (e.side_effects && e.side_effects.length) ? e.side_effects.map(k=>SIDE_EFFECT_LABELS[k]||k).join(', ').slice(0,45) : 'Aucun';
     case 'positive_feelings': return (e.positive_feelings && e.positive_feelings.length) ? e.positive_feelings.map(k=>POSITIVE_FEELING_LABELS[k]||k).join(', ').slice(0,45) : 'Aucun';
-    case 'cafes_alcohol': return `☕ ${e.cafes_count||0} · 🍷 ${e.alcohol_units||0}${e.gaviscon_doses ? ' · 🧯 Gav. '+e.gaviscon_doses : ''}${e.pantoprazole_doses ? ' · 💊 Panto. '+e.pantoprazole_doses : ''}`;
+    case 'cafes_alcohol': { if(e.cafes_count==null && e.alcohol_units==null) return dash; return `☕ ${e.cafes_count??0} · 🍷 ${e.alcohol_units??0}${e.gaviscon_doses ? ' · 🧯 Gav. '+e.gaviscon_doses : ''}${e.pantoprazole_doses ? ' · 💊 Panto. '+e.pantoprazole_doses : ''}`; }
     case 'activities': return (e.activities && e.activities.length) ? e.activities.slice(0,3).join(', ')+(e.activities.length>3?'…':'') : dash;
     case 'physical_activity': return ({0:'0 · Sédentaire',1:'1 · Légèrement actif',2:'2 · Actif',3:'3 · Cardio'})[e.physical_activity] ?? dash;
-    case 'social_media': { const t=e.social_media_min||0; return t===0?'Aucun':`${Math.floor(t/60)}h${String(t%60).padStart(2,'0')}`; }
+    case 'social_media': { if(e.social_media_min==null) return dash; const t=e.social_media_min; return t===0?'Aucun':`${Math.floor(t/60)}h${String(t%60).padStart(2,'0')}`; }
     case 'notable_event': return e.notable_event ? `Oui${e.notable_event_text ? ' : '+e.notable_event_text.slice(0,25) : ''}` : 'Non';
     case 'note': return e.free_note ? `"${e.free_note.slice(0,35)}${e.free_note.length>35?'…':''}"` : dash;
     default: return dash;
@@ -2507,7 +2609,7 @@ function renderCurves(c, entries){
       labels,
       datasets: [
         // Courbes principales : traits continus, visibles par defaut
-        {label:'Humeur globale',  data: entries.map(e=>e.mood_evening), borderColor:'#4ecdc4', backgroundColor:'rgba(78,205,196,.1)', tension:.3, fill:false, pointRadius:3},
+        {label:'Humeur',  data: entries.map(e=>e.mood_evening), borderColor:'#4ecdc4', backgroundColor:'rgba(78,205,196,.1)', tension:.3, fill:false, pointRadius:3},
         {label:'Énergie globale', data: entries.map(e=>e.energy), borderColor:'#9b6dff', backgroundColor:'rgba(155,109,255,.1)', tension:.3, fill:false, pointRadius:3},
         {label:'Durée sommeil',   data: entries.map(e=>sleepNorm(e.sleep_duration_min)), borderColor:'#f5a623', backgroundColor:'rgba(245,166,35,.1)', tension:.3, fill:false, pointRadius:3},
         {label:'Anxiété',         data: entries.map(e=>e.anxiety), borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', tension:.3, fill:false, pointRadius:3},
@@ -2718,7 +2820,7 @@ function renderDosesCharts(c, entries){
   ];
 
   const subCharts = [
-    { id:'chart-doses-mood',    metricLabel:'Humeur globale',    color:'#4ecdc4', data: entries.map(e=>e.mood_evening),  desc:"L'humeur se dégrade-t-elle / s'améliore-t-elle en même temps que les doses changent ?" },
+    { id:'chart-doses-mood',    metricLabel:'Humeur',    color:'#4ecdc4', data: entries.map(e=>e.mood_evening),  desc:"L'humeur se dégrade-t-elle / s'améliore-t-elle en même temps que les doses changent ?" },
     { id:'chart-doses-fog',     metricLabel:'Brouillard mental', color:'#7a92aa', data: entries.map(e=>e.brain_fog),     desc:"Le brouillard mental évolue-t-il avec les changements de dose ?" },
     { id:'chart-doses-anxiety', metricLabel:'Anxiété',           color:'#e74c3c', data: entries.map(e=>e.anxiety),       desc:"L'anxiété réagit-elle aux variations de dose ?" },
     { id:'chart-doses-energy',  metricLabel:'Énergie globale',   color:'#9b6dff', data: entries.map(e=>e.energy),        desc:"L'énergie change-t-elle avec les doses ?" }
@@ -3132,7 +3234,7 @@ function renderWeeklySummary(c, entries){
       <table class="weekly-table">
         <thead><tr>
           <th>Semaine</th><th>J.</th>
-          <th>Humeur</th><th>Sommeil</th><th>Anxiété</th><th>Énergie</th>
+          <th>Humeur</th><th>Sommeil (qual.)</th><th>Anxiété</th><th>Énergie</th>
           <th>Brouillard</th><th>Sensib.</th><th>Activité</th><th>Cafés</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -3236,6 +3338,13 @@ function renderSettings(){
     }
   }
 
+  // Interrupteur de la proposition d'archive hebdomadaire
+  const at = document.getElementById('archive-toggle');
+  if(at){
+    at.checked = state.data.settings.archive_prompt_enabled !== false;
+    at.onchange = async () => { state.data.settings.archive_prompt_enabled = at.checked; await saveData(); };
+  }
+
   // Skin picker
   renderSkinPicker();
 
@@ -3294,7 +3403,7 @@ function exportJSON(){
 }
 
 function exportCSV(){
-  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
   const header = cols.join(';');
   const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
     cols.map(c => csvEscape(e[c])).join(';')
@@ -3328,7 +3437,7 @@ function exportMarkdown(){
   if(entries.length > 0){
     const avg = (k) => { const vals = entries.map(en=>en[k]).filter(v=>typeof v==='number'); return vals.length ? (vals.reduce((a,b)=>a+b)/vals.length).toFixed(1) : '—'; };
     md += `| Indicateur | Moyenne |\n|---|---|\n`;
-    md += `| Appréciation journée | ${avg('mood_evening')} / 10 |\n`;
+    md += `| Humeur du jour | ${avg('mood_evening')} / 10 |\n`;
     md += `| Sommeil | ${avg('sleep_quality')} / 10 |\n`;
     { const mm = entries.filter(en=>en.mood_morning != null); if(mm.length) md += `| Humeur réveil | ${(mm.reduce((sum,en)=>sum+en.mood_morning,0)/mm.length).toFixed(1)} / 10 |\n`; }
     md += `| Brouillard mental (journée) | ${avg('brain_fog')} / 10 |\n`;
@@ -3354,12 +3463,12 @@ function exportMarkdown(){
     }
     if(e.evening_done){
       md += `**Soir**\n`;
-      md += `- Doses : paroxétine ${e.paroxetine_mg}mg, miansérine ${e.mianserine_mg}mg, oxazépam ${e.oxazepam_mg}mg\n`;
-      md += `- Cafés ${e.cafes_count||0} · Alcool ${e.alcohol_units||0}${e.gaviscon_doses ? ' · Gaviscon '+e.gaviscon_doses : ''}${e.pantoprazole_doses ? ' · Panto. '+e.pantoprazole_doses : ''}${e.ltyrosine_mg ? ' · L-Tyr '+e.ltyrosine_mg+'mg' : ''}\n`;
-      md += `- Énergie ${e.energy}/10 · Anxiété ${e.anxiety}/10 · Brouillard ${e.brain_fog}/10 · Sensibilité émot. ${e.blunting > 0 ? '+' : ''}${e.blunting}\n`;
-      md += `- Appréciation journée : ${e.mood_evening}/10\n`;
+      { const doses = []; if(e.paroxetine_mg) doses.push(`paroxétine ${e.paroxetine_mg}mg`); if(typeof e.mianserine_mg==='number') doses.push(`miansérine ${e.mianserine_mg}mg`); if(typeof e.oxazepam_mg==='number') doses.push(`oxazépam ${e.oxazepam_mg}mg`); if(doses.length) md += `- Doses : ${doses.join(', ')}\n`; }
+      { const conso = []; if(typeof e.cafes_count==='number') conso.push(`Cafés ${e.cafes_count}`); if(typeof e.alcohol_units==='number') conso.push(`Alcool ${e.alcohol_units}`); if(e.gaviscon_doses) conso.push('Gaviscon '+e.gaviscon_doses); if(e.pantoprazole_doses) conso.push('Panto. '+e.pantoprazole_doses); if(e.ltyrosine_mg) conso.push('L-Tyr '+e.ltyrosine_mg+'mg'); if(conso.length) md += `- ${conso.join(' · ')}\n`; }
+      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Sensibilité émot. ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
+      if(typeof e.mood_evening==='number') md += `- Humeur : ${e.mood_evening}/10\n`;
       const phLabels = {0:'Sédentaire',1:'Légèrement actif',2:'Actif',3:'Cardio'};
-      md += `- Activité physique : ${phLabels[e.physical_activity]||'—'}\n`;
+      if(e.physical_activity !== null && e.physical_activity !== undefined) md += `- Activité physique : ${phLabels[e.physical_activity]||'—'}\n`;
       if(e.social_media_min) md += `- Réseaux sociaux : ${Math.floor(e.social_media_min/60)}h${String(e.social_media_min%60).padStart(2,'0')}\n`;
       md += `- Idéations : ${suicidalLabel(e.suicidal)}${e.suicidal_note ? ' : ' + e.suicidal_note : ''}\n`;
       if(e.rgo) md += `- RGO : ${e.rgo_intensity}/10\n`;
@@ -3577,6 +3686,9 @@ function exportPDF(){
         const blColor = bl < -2 ? '#c0392b' : bl > 2 ? '#7b2fbe' : bl === 0 ? '#888' : '#b36b00';
         dh += '<tr><td>Sensib. émot.</td><td><span style="font-weight:600;color:'+blColor+'">'+blStr+'</span></td></tr>';
       }
+      if(e.libido){
+        dh += '<tr><td>Libido</td><td>'+({absente:'Absente',diminuee:'Diminuée',normale:'Normale'}[e.libido]||e.libido)+'</td></tr>';
+      }
       // Activité physique : label
       if(e.physical_activity !== undefined && e.physical_activity !== null){
         const actPhLabel = actPhLabels[e.physical_activity] || '—';
@@ -3716,7 +3828,7 @@ function exportPDF(){
     +'</table></div>'
     +'<div><h3>Bilan global</h3><table>'
     +'<tr><th>Indicateur</th><th>Moy.</th></tr>'
-    +'<tr><td>Humeur globale</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'mood_evening'),true)+'">'+avg(entries.filter(e=>e.evening_done),'mood_evening')+' /10</td></tr>'
+    +'<tr><td>Humeur</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'mood_evening'),true)+'">'+avg(entries.filter(e=>e.evening_done),'mood_evening')+' /10</td></tr>'
     +'<tr><td>Anxiété</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'anxiety'),false)+'">'+avg(entries.filter(e=>e.evening_done),'anxiety')+' /10</td></tr>'
     +'<tr><td>Énergie journée</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'energy'),true)+'">'+avg(entries.filter(e=>e.evening_done),'energy')+' /10</td></tr>'
     +'<tr><td>Brouillard mental</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'brain_fog'),false)+'">'+avg(entries.filter(e=>e.evening_done),'brain_fog')+' /10</td></tr>'
@@ -3802,6 +3914,7 @@ function markArchiveDone(){
 // Premier lancement : on amorce le compteur sans rien proposer.
 // Une seule proposition par jour logique ("Plus tard" => on redemande le lendemain).
 function checkArchivePrompt(){
+  if(state.data && state.data.settings && state.data.settings.archive_prompt_enabled === false) return;
   const st = loadArchiveState();
   if(!st.last_export){
     st.last_export = new Date().toISOString();
