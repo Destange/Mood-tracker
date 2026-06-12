@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.15.1';
+const VERSION = '1.16.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -782,7 +782,7 @@ const SKINS = {
   acier:     { name:'Acier',      desc:'Bleu marine · Azur',      bg:'#09101e',bg2:'#0d1628',bg3:'#121e36',bg4:'#182842',border:'#1e3355',text:'#dceeff',dim:'#7ba8d0',faint:'#4d7a9a',accent:'#4a9eff',accentDim:'#2a60b0',amber:'#f5c842',amberDim:'#a08a15' }
 };
 
-const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','weight','note_morning'];
+const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','dreams','weight','note_morning'];
 const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','resonance','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
 const STEP_LABELS = {
   sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
@@ -991,7 +991,7 @@ function logicalDateStr(){
    ============================================================ */
 
 const MORNING_STEPS = [
-  'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'weight', 'note_morning', 'recap'
+  'sleep_schedule', 'sleep_quality', 'dreams', 'weight', 'note_morning', 'recap'
 ];
 /* Soir, en 4 blocs : corps et consommations, etats internes, comportements, synthese */
 const EVENING_STEPS = [
@@ -1143,7 +1143,7 @@ function blankEntry(date){
     sleep_waketime: '',
     sleep_duration_min: 0,
     sleep_quality: null, // reponse obligatoire en saisie, pas de valeur fabriquee
-    wake_count: 0,
+    wake_count: null, // question retiree en v1.16.0, historique conserve
     dream_quality: null,
     nightmare: false,
     nightmare_note: '',
@@ -1279,7 +1279,7 @@ function stepWrap(num, title, help){
   div.className = 'entry-step';
   const sessionLabel = state.entrySession === 'morning' ? 'Matin' : 'Soir';
   const counter = state.singleStepEdit ? '' : `<div class="step-num">${sessionLabel} · ${num+1} / ${state.entrySteps.length}</div>`;
-  div.innerHTML = `${counter}<h2>${title}</h2><p class="step-help">${help||''}</p>`;
+  div.innerHTML = `${counter}<h2>${title}</h2>${help ? `<p class="step-help">${help}</p>` : ''}`;
   return div;
 }
 
@@ -1288,7 +1288,7 @@ function buildStep(step){
   const d = state.entryDraft;
 
   if(step === 'sleep_schedule'){
-    const w = stepWrap(idx, "Horaires de sommeil", "Heure de coucher hier soir et heure de lever ce matin.");
+    const w = stepWrap(idx, "Horaires de sommeil", "");
     const grid = document.createElement('div');
     grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px';
     grid.innerHTML = `
@@ -1336,9 +1336,9 @@ function buildStep(step){
     const titles = {
       sleep_quality: ["Comment était ton sommeil ?", "0 = catastrophique, 10 = parfait."],
       mood_morning: ["Humeur au réveil ?", "0 = très basse, 10 = très haute."],
-      energy: ["Énergie globale aujourd'hui ?", "Ressenti global de la journée. 0 = épuisé, 10 = pleinement disponible."],
-      anxiety: ["Anxiété aujourd'hui ?", "Bilan de la journée. 0 = aucune, 10 = très intense."],
-      brain_fog: ["Brouillard mental dans la journée ?", "Ressenti moyen de la journée. 0 = esprit clair, 10 = très embrumé."],
+      energy: ["Énergie globale aujourd'hui ?", "0 = épuisé · 10 = pleinement disponible."],
+      anxiety: ["Anxiété aujourd'hui ?", "0 = aucune · 10 = très intense."],
+      brain_fog: ["Brouillard mental dans la journée ?", "0 = esprit clair · 10 = très embrumé."],
       mood_evening: ["Ton humeur aujourd'hui ?", "0 = très basse, 10 = très haute. L'humeur ressentie, pas la réussite de la journée."]
     };
     const w = stepWrap(idx, titles[step][0], titles[step][1]);
@@ -1445,26 +1445,8 @@ function buildStep(step){
     return w;
   }
 
-  if(step === 'wake_count'){
-    const w = stepWrap(idx, "Combien de réveils nocturnes ?", "Y compris les très brefs si tu t'en souviens.");
-    const ni = document.createElement('div');
-    ni.className = 'num-input';
-    ni.innerHTML = `
-      <button id="wc-minus">−</button>
-      <input type="number" id="wc-val" value="${d.wake_count}" min="0" max="20">
-      <button id="wc-plus">+</button>`;
-    w.appendChild(ni);
-    setTimeout(()=>{
-      const inp = document.getElementById('wc-val');
-      document.getElementById('wc-minus').onclick = ()=>{ if(d.wake_count>0){d.wake_count--; inp.value = d.wake_count;} };
-      document.getElementById('wc-plus').onclick = ()=>{ d.wake_count++; inp.value = d.wake_count; };
-      inp.oninput = e=>{ d.wake_count = Math.max(0, parseInt(e.target.value)||0); };
-    },0);
-    return w;
-  }
-
   if(step === 'dreams'){
-    const w = stepWrap(idx, "Qualité des rêves cette nuit ?", "Souvenir et nature des rêves au réveil.");
+    const w = stepWrap(idx, "Qualité des rêves cette nuit ?", "");
     const dreamOpts = [
       {v:0, t:"0 · Aucun souvenir",    s:"Nuit noire, rien de mémorisé."},
       {v:1, t:"1 · Vagues souvenirs",  s:"Quelques fragments, impressions floues."},
@@ -1514,7 +1496,7 @@ function buildStep(step){
   }
 
   if(step === 'suicidal'){
-    const w = stepWrap(idx, "Idéations suicidaires aujourd'hui ?", "Important pour le suivi. Cette donnée reste dans l'app et dans tes exports : toi seul décides à qui les montrer.");
+    const w = stepWrap(idx, "Idéations suicidaires aujourd'hui ?", "Cette donnée reste dans l'app : toi seul décides à qui la montrer.");
     const opts = [
       {v:'aucune', t:"Aucune", s:"Pas de pensée de ce type."},
       {v:'fugaces', t:"Fugaces", s:"Pensées brèves, qui passent vite."},
@@ -1557,7 +1539,7 @@ function buildStep(step){
   }
 
   if(step === 'meds'){
-    const w = stepWrap(idx, "Doses prises aujourd'hui", "Modifiable au cas par cas.");
+    const w = stepWrap(idx, "Doses prises aujourd'hui", "");
     const grid = document.createElement('div');
     grid.className = 'meds-grid';
     grid.innerHTML = `
@@ -1635,7 +1617,7 @@ function buildStep(step){
   }
 
   if(step === 'side_effects'){
-    const w = stepWrap(idx, "Ressentis négatifs de la journée", "Coche tous ceux qui s'appliquent.");
+    const w = stepWrap(idx, "Ressentis négatifs de la journée", "");
     const SIDE_EFFECT_GROUPS = [
       {label: 'Corps', keys: ['bouche_seche','constipation','courbatures','diarrhee','fatigue_generale','grande_faim','grignotages','mal_tete','nausees','pas_appetit','tremblements','vertiges']},
       {label: 'Émotions', keys: ['deconnecte','desespoir_profond','irritabilite','pleurs','tristesse_a_vif']}
@@ -1719,7 +1701,7 @@ function buildStep(step){
   }
 
 if(step === 'positive_feelings'){
-    const w = stepWrap(idx, "Ressentis positifs de la journée ✨", "Coche tout ce qui a été présent, même brièvement.");
+    const w = stepWrap(idx, "Ressentis positifs de la journée ✨", "Même brièvement.");
     const chips = document.createElement('div');
     chips.className = 'chips';
 
@@ -1785,7 +1767,7 @@ if(step === 'positive_feelings'){
 
   if(step === 'quicknotes_review'){
     const notes = state.data.quicknotes || [];
-    const w = stepWrap(idx, "Notes du jour", "Ces notes ont été ajoutées en cours de journée. Elles seront effacées après validation de cette session.");
+    const w = stepWrap(idx, "Notes du jour", "Effacées après validation.");
     if(notes.length === 0){
       const p = document.createElement('p');
       p.style.color = 'var(--text-faint)';
@@ -1806,7 +1788,7 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'activities'){
-    const w = stepWrap(idx, "Activités du jour", "Coche ce que tu as fait aujourd'hui. Optionnel.");
+    const w = stepWrap(idx, "Activités du jour", "");
     ACTIVITY_CATEGORIES.forEach(cat => {
       const label = document.createElement('div');
       label.className = 'activities-cat-label';
@@ -1879,7 +1861,7 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'weight'){
-    const w = stepWrap(idx, "Ton poids ce matin ?", "Optionnel. Renseigne si tu te pèses, laisse vide sinon.");
+    const w = stepWrap(idx, "Ton poids ce matin ?", "Optionnel.");
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:12px;max-width:200px';
     row.innerHTML = `<input type="number" id="inp-weight" min="30" max="250" step="0.1" placeholder="—" value="${d.weight_kg ?? ''}" style="flex:1;text-align:center;font-size:22px;font-weight:600;color:var(--teal);background:var(--bg-2);border:1.5px solid var(--border);border-radius:8px;padding:10px"> <span style="font-size:14px;color:var(--text-faint)">kg</span>`;
@@ -2010,7 +1992,7 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'social_media'){
-    const w = stepWrap(idx, "Temps sur les réseaux sociaux aujourd'hui ?", "Tous réseaux confondus.");
+    const w = stepWrap(idx, "Temps sur les réseaux sociaux aujourd'hui ?", "");
     const smOpts = [
       {v:0,   t:"Aucun",      s:"Pas de réseaux aujourd'hui."},
       {v:20,  t:"< 30 min",   s:"Consultation rapide."},
@@ -2039,7 +2021,7 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'notable_event'){
-    const w = stepWrap(idx, "Événement marquant ?", "Quelque chose d'inhabituel aujourd'hui, qui pourrait influencer les données.");
+    const w = stepWrap(idx, "Événement marquant ?", "Quelque chose d'inhabituel qui peut influencer les données.");
     const opts = [
       {v:false, t:"Non", s:"Journée ordinaire."},
       {v:true,  t:"Oui", s:"Un événement sort de l'ordinaire."}
@@ -2073,7 +2055,7 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'note'){
-    const w = stepWrap(idx, "Note libre · soir", "Quelque chose à retenir de cette journée ? Optionnel.");
+    const w = stepWrap(idx, "Note libre · soir", "Optionnel.");
     if(d.note_morning !== undefined){
       const morningBlock = document.createElement('div');
       morningBlock.style.cssText = 'margin-bottom:14px';
@@ -2103,7 +2085,7 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'recap'){
-    const w = stepWrap(idx, "Récapitulatif", "Vérifie et enregistre.");
+    const w = stepWrap(idx, "Récapitulatif", "");
     const grid = document.createElement('div');
     grid.className = 'recap-grid';
     let rows;
@@ -2112,7 +2094,7 @@ if(step === 'positive_feelings'){
       rows = [
         ['Date', formatDate(d.date)],
         ['Horaires', (d.sleep_bedtime||'?')+' → '+(d.sleep_waketime||'?')+(durH ? ` (${durH})` : '')],
-        ['Sommeil', `${d.sleep_quality}/10 · ${d.wake_count} réveil${d.wake_count>1?'s':''}`]
+        ['Sommeil', `${d.sleep_quality}/10${typeof d.wake_count === 'number' ? ` · ${d.wake_count} réveil${d.wake_count>1?'s':''}` : ''}`]
       ];
       if(d.dream_quality != null){
         const dqLabel = ({0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'})[d.dream_quality] || '—';
@@ -2868,7 +2850,7 @@ function renderBilan(c, entries){
     + '<div class="bilan-grid">' + cards + '</div>'
     + ideationQuiet
     + summaryHtml
-    + '<div class="home-note">Ce bilan met en avant le changement plutôt que le niveau absolu : c\'est la direction qui informe, pas la valeur d\'un soir. Les jours non saisis sont simplement ignorés.</div>';
+    + '<div class="home-note">Le changement compte plus que le niveau : c\'est la direction qui informe.</div>';
   c.appendChild(sec);
 }
 
@@ -3038,7 +3020,7 @@ function renderTendances(c, entries){
     <div class="heatmap-metric-selector" id="tend-period">${PERIODS.map(([n,lab]) => `<button class="heatmap-metric-btn${period === n ? ' active' : ''}" data-period="${n}">${lab}</button>`).join('')}</div>
     ${events.length ? `<div class="tend-events">${events.map(ev => `<span>${new Date(ev.date + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'short'})} : ${ev.label}</span>`).join('')}</div>` : ''}
     ${TEND_METRICS.map(m => `<div class="tend-block"><div class="tend-title" style="color:${m.color}">${m.label}</div><div class="stats-card"><div class="chart-wrap mini"><canvas id="tend-${m.key}"></canvas></div></div></div>`).join('')}
-    <div class="home-note">Lignes ambre : événements de traitement, détaillés au-dessus des graphiques. Triangles violets : jours marqués comme événement marquant. Appuie sur un point pour ouvrir la fiche du jour. Les jours non saisis laissent un trou : la moyenne mobile s'interrompt quand moins de 3 jours sont disponibles sur la fenêtre.</div>
+    <div class="home-note">Ambre : traitement · violet : jours marquants · appuie sur un point pour voir le jour.</div>
   `;
   c.appendChild(sec);
 
@@ -3310,7 +3292,7 @@ function renderGoodBadDays(c, entries){
   };
 
   sec.innerHTML = '<h3>Bons jours / jours difficiles</h3>'
-    + '<div class="home-note" style="margin-bottom:14px">Comparaison de tes ' + r.q + ' meilleurs jours d\'humeur (moy. ' + (Math.round(r.goodMood * 10) / 10).toFixed(1).replace('.', ',') + '/10) et de tes ' + r.q + ' plus difficiles (moy. ' + (Math.round(r.badMood * 10) / 10).toFixed(1).replace('.', ',') + '/10), sur ' + r.n + ' jours saisis. Ce sont des associations, pas des causes : un lien peut aller dans les deux sens.</div>'
+    + '<div class="home-note" style="margin-bottom:14px">Comparaison de tes ' + r.q + ' meilleurs jours d\'humeur (moy. ' + (Math.round(r.goodMood * 10) / 10).toFixed(1).replace('.', ',') + '/10) et de tes ' + r.q + ' plus difficiles (moy. ' + (Math.round(r.badMood * 10) / 10).toFixed(1).replace('.', ',') + '/10), sur ' + r.n + ' jours saisis. Associations, pas causes.</div>'
     + '<div class="stats-card" style="overflow-x:auto;margin-bottom:14px"><table class="weekly-table">'
     + '<thead><tr><th></th><th>Bons jours</th><th>Jours difficiles</th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>'
@@ -4077,7 +4059,7 @@ function renderWeeklySummary(c, entries){
 
   sec.innerHTML = `
     <h3>Résumé hebdomadaire</h3>
-    <div class="home-note" style="margin-bottom:14px">Moyennes par semaine des indicateurs saisis. Pertinent pour repérer une <strong>tendance sur la durée</strong> : une valeur isolée ne dit rien, c'est la direction semaine après semaine qui compte. Particulièrement utile pendant un sevrage pour distinguer un creux passager d'une régression réelle. Attachement est affiché signé (−5 à +5).</div>
+    <div class="home-note" style="margin-bottom:14px">Attachement affiché signé (−5 à +5).</div>
     <div class="stats-card" style="overflow-x:auto">
       <table class="weekly-table">
         <thead><tr>
@@ -4305,7 +4287,7 @@ function exportMarkdown(){
         const durH = e.sleep_duration_min ? Math.floor(e.sleep_duration_min/60)+'h'+String(e.sleep_duration_min%60).padStart(2,'0') : '';
         md += `- Horaires : ${e.sleep_bedtime||'?'} → ${e.sleep_waketime||'?'}${durH ? ' ('+durH+')' : ''}\n`;
       }
-      md += `- Sommeil : ${e.sleep_quality}/10 (${e.wake_count} réveils)\n`;
+      md += `- Sommeil : ${e.sleep_quality}/10${typeof e.wake_count === 'number' ? ` (${e.wake_count} réveils)` : ''}\n`;
       if(e.dream_quality != null){ const dqL = {0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'}; md += `- Rêves : ${dqL[e.dream_quality]||'—'}${e.nightmare ? ' · Cauchemar' + (e.nightmare_note ? ' ('+e.nightmare_note+')' : '') : ''}\n`; }
       if(e.mood_morning != null) md += `- Humeur réveil : ${e.mood_morning}/10\n`;
       if(e.weight_kg != null) md += `- Poids : ${e.weight_kg} kg\n`;
