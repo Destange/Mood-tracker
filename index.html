@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.15.0';
+const VERSION = '1.15.1';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -565,6 +565,7 @@ const state = {
   tendPeriod: 90, // Tendances : 30/90/180 jours, 0 = tout
   exploreView: 'days', // Explorer : days/heatmap/weekly/activities_impact/corr_short
   feelPeriod: 30, // Ressentis : 30/90 jours, 0 = tout
+  heatmapOrder: 'desc', // Heatmap : 'desc' = mois en cours d'abord, 'asc' = chronologique
   curvesPeriod: 30, // 7/14/30/90 jours, 0 = tout
   heatmapMetric: 'mood_evening',
   charts: {}
@@ -3552,9 +3553,14 @@ function renderHeatmap(c, entries){
   sec.innerHTML = `
     <h3>Heatmap</h3>
     <div class="heatmap-metric-selector">${selectorHtml}</div>
+    <div class="heatmap-metric-selector"><button class="heatmap-metric-btn" id="heatmap-order-btn">${state.heatmapOrder === 'desc' ? 'Récent → ancien' : 'Ancien → récent'}</button></div>
     <div class="stats-card" id="heatmap-card"></div>
   `;
   c.appendChild(sec);
+  sec.querySelector('#heatmap-order-btn').addEventListener('click', () => {
+    state.heatmapOrder = state.heatmapOrder === 'desc' ? 'asc' : 'desc';
+    renderStats();
+  });
 
   // Gestion du sélecteur
   sec.querySelector('.heatmap-metric-selector').addEventListener('click', e => {
@@ -3590,6 +3596,7 @@ function renderHeatmap(c, entries){
     return Object.keys(entryMap).some(k => k.startsWith(prefix));
   };
   const visibleMonths = months.filter(d => hasEntry(d.getFullYear(), d.getMonth()));
+  if(state.heatmapOrder === 'desc') visibleMonths.reverse();
 
   const heat = document.createElement('div');
   heat.className = 'heatmap';
