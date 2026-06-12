@@ -202,6 +202,15 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .bilan-line.good{color:var(--teal)}
 .bilan-line.bad{color:var(--red)}
 .bilan-line.flat{color:var(--text-dim)}
+.gbd-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.gbd-cols{grid-template-columns:1fr}}
+.gbd-col-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+.gbd-col-title.good{color:var(--teal)}
+.gbd-col-title.bad{color:var(--red)}
+.gbd-tag{font-size:13px;padding:4px 0;border-bottom:1px solid var(--border)}
+.gbd-tag:last-child{border-bottom:none}
+.gbd-pct{color:var(--text-faint);font-size:11px;float:right}
+.gbd-tags-empty{font-size:13px;color:var(--text-dim)}
 .chart-wrap{position:relative;height:240px;margin-top:8px}
 .chart-wrap.tall{height:300px}
 .chart-wrap.mini{height:150px}
@@ -434,13 +443,9 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     <div class="stats-tabs" id="stats-tabs">
       <button class="stats-tab active" data-tab="bilan">Bilan</button>
       <button class="stats-tab" data-tab="trends">Tendances</button>
-      <button class="stats-tab" data-tab="curves">Courbes</button>
-      <button class="stats-tab" data-tab="heatmap">Heatmap</button>
-      <button class="stats-tab" data-tab="meds">Doses</button>
+      <button class="stats-tab" data-tab="explore">Explorer</button>
       <button class="stats-tab" data-tab="side_effects">Ressentis nég.</button>
       <button class="stats-tab" data-tab="positive_feelings">Ress. pos.</button>
-      <button class="stats-tab" data-tab="activities_impact">Activités</button>
-      <button class="stats-tab" data-tab="weekly">Hebdo</button>
     </div>
     <div id="stats-content"></div>
   </div>
@@ -540,7 +545,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.12.0';
+const VERSION = '1.13.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -555,6 +560,8 @@ const state = {
   singleStepEdit: false,
   statsTab: 'bilan',
   tendPeriod: 90, // Tendances : 30/90/180 jours, 0 = tout
+  exploreView: 'days', // Explorer : days/heatmap/weekly/activities_impact/corr_short
+  feelPeriod: 30, // Ressentis : 30/90 jours, 0 = tout
   curvesPeriod: 30, // 7/14/30/90 jours, 0 = tout
   heatmapMetric: 'mood_evening',
   charts: {}
@@ -2579,6 +2586,7 @@ function renderStats(){
 
   if(state.statsTab === 'bilan') renderBilan(c, entries);
   else if(state.statsTab === 'trends') renderTendances(c, entries);
+  else if(state.statsTab === 'explore') renderExplorer(c, entries);
   else if(state.statsTab === 'curves') renderCurves(c, entries);
   else if(state.statsTab === 'heatmap') renderHeatmap(c, entries);
   else if(state.statsTab === 'meds') renderDosesCharts(c, entries);
@@ -3042,6 +3050,270 @@ function renderTendances(c, entries){
   });
 }
 
+/* ===== EXPL-PURE-BEGIN : logique pure de l'onglet Explorer (extractible, testée dans node) ===== */
+
+// Moins de EXPL_MIN_DAYS jours avec humeur : pas de quartiles (comparer 3 jours à 3 jours ne veut rien dire)
+const EXPL_MIN_DAYS = 20;
+
+// Filtre de période générique (period en jours, 0 = tout), calé sur le jour logique
+function explFilterPeriod(entries, period, today){
+  if(!period) return entries;
+  const from = bilanAddDays(today, -(period - 1));
+  return entries.filter(e => e.date >= from);
+}
+
+// Moyenne d'un getter sur un groupe de jours (null si aucune valeur)
+function explAvg(group, getter){
+  const vals = [];
+  group.forEach(e => {
+    const v = getter(e);
+    if(typeof v === 'number' && isFinite(v)) vals.push(v);
+  });
+  return vals.length ? {avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length} : {avg: null, n: 0};
+}
+
+// Bons jours / jours difficiles : quartile des meilleures humeurs vs quartile des pires.
+// Comparaison des moyennes (sommeil de la nuit précédente, cafés, alcool, activité physique,
+// réseaux sociaux) et des tags (activités et personnes) surreprésentés dans un groupe.
+function explGoodBadDays(entries){
+  const withMood = entries.filter(e => bilanGetMood(e) !== null);
+  if(withMood.length < EXPL_MIN_DAYS) return {ok: false, n: withMood.length, min: EXPL_MIN_DAYS};
+
+  const sorted = withMood.slice().sort((a, b) => bilanGetMood(a) - bilanGetMood(b));
+  const q = Math.max(1, Math.floor(sorted.length / 4));
+  const bad = sorted.slice(0, q);
+  const good = sorted.slice(sorted.length - q);
+
+  const NUM_METRICS = [
+    {key: 'sleep',   label: 'Sommeil nuit précédente', unit: 'h',     getter: tendGetSleepHours},
+    {key: 'cafes',   label: 'Cafés',                   unit: '',      getter: e => typeof e.cafes_count === 'number' ? e.cafes_count : null},
+    {key: 'alcohol', label: 'Alcool (unités)',         unit: '',      getter: e => typeof e.alcohol_units === 'number' ? e.alcohol_units : null},
+    {key: 'phys',    label: 'Activité physique (0-3)', unit: '',      getter: e => typeof e.physical_activity === 'number' ? e.physical_activity : null},
+    {key: 'social',  label: 'Réseaux sociaux',         unit: 'min',   getter: e => typeof e.social_media_min === 'number' ? e.social_media_min : null}
+  ];
+  const metrics = NUM_METRICS.map(m => {
+    const g = explAvg(good, m.getter), b = explAvg(bad, m.getter);
+    return {key: m.key, label: m.label, unit: m.unit, good: g.avg, bad: b.avg, goodN: g.n, badN: b.n};
+  });
+
+  // Tags : pourcentage de jours du groupe contenant le tag, écart entre groupes
+  const tagPct = group => {
+    const counts = {};
+    group.forEach(e => {
+      if(!Array.isArray(e.activities)) return;
+      const seen = {};
+      e.activities.forEach(t => {
+        if(seen[t]) return;
+        seen[t] = true;
+        counts[t] = (counts[t] || 0) + 1;
+      });
+    });
+    const pct = {};
+    Object.keys(counts).forEach(t => { pct[t] = counts[t] / group.length; });
+    return {pct: pct, counts: counts};
+  };
+  const gp = tagPct(good), bp = tagPct(bad);
+  const allTags = {};
+  Object.keys(gp.counts).forEach(t => { allTags[t] = true; });
+  Object.keys(bp.counts).forEach(t => { allTags[t] = true; });
+  const tags = Object.keys(allTags)
+    .map(t => ({
+      tag: t,
+      goodPct: gp.pct[t] || 0,
+      badPct: bp.pct[t] || 0,
+      total: (gp.counts[t] || 0) + (bp.counts[t] || 0)
+    }))
+    .filter(t => t.total >= 3) // un tag vu moins de 3 fois sur les deux groupes : anecdote, pas signal
+    .map(t => Object.assign(t, {diff: t.goodPct - t.badPct}))
+    .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+  return {
+    ok: true,
+    n: withMood.length,
+    q: q,
+    goodMood: explAvg(good, bilanGetMood).avg,
+    badMood: explAvg(bad, bilanGetMood).avg,
+    metrics: metrics,
+    moreOnGood: tags.filter(t => t.diff > 0).slice(0, 5),
+    moreOnBad: tags.filter(t => t.diff < 0).slice(0, 5)
+  };
+}
+
+// Paires x/y alignées par DATE (pas par index : les jours manquants ne décalent rien).
+// lagDays : y est lu sur l'entrée de date + lagDays.
+function explAlignPairs(entries, getX, getY, lagDays){
+  const byDate = {};
+  entries.forEach(e => { byDate[e.date] = e; });
+  const xs = [], ys = [];
+  entries.forEach(e => {
+    const x = getX(e);
+    if(typeof x !== 'number' || !isFinite(x)) return;
+    const target = lagDays ? byDate[bilanAddDays(e.date, lagDays)] : e;
+    if(!target) return;
+    const y = getY(target);
+    if(typeof y !== 'number' || !isFinite(y)) return;
+    xs.push(x);
+    ys.push(y);
+  });
+  return {xs: xs, ys: ys};
+}
+
+// Pearson sur paires alignées (même formule que l'ancien pearsonLag, conservé par ailleurs)
+function explPearson(xs, ys){
+  const n = xs.length;
+  if(n < 3) return {r: NaN, n: n};
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, dx2 = 0, dy2 = 0;
+  for(let i = 0; i < n; i++){
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    num += dx * dy; dx2 += dx * dx; dy2 += dy * dy;
+  }
+  if(dx2 === 0 || dy2 === 0) return {r: NaN, n: n};
+  return {r: num / Math.sqrt(dx2 * dy2), n: n};
+}
+
+// Les 5 paires retenues pour la version courte (audit section 4.2), durées de sommeil en heures brutes
+function explShortCorrelations(entries){
+  const getAnx = bilanGetAnxiety;
+  const getPhys = e => (e.evening_done && typeof e.physical_activity === 'number') ? e.physical_activity : null;
+  const getCafes = e => (e.evening_done && typeof e.cafes_count === 'number') ? e.cafes_count : null;
+  const getSocial = e => (e.evening_done && typeof e.social_media_min === 'number') ? e.social_media_min : null;
+  const PAIRS = [
+    {title: 'Sommeil de la nuit → humeur du jour',        desc: 'Une nuit plus longue s\'accompagne-t-elle d\'une meilleure humeur le jour même ?', getX: tendGetSleepHours, getY: bilanGetMood, lag: 0},
+    {title: 'Activité physique → humeur (même jour)',     desc: 'Les jours où tu bouges sont-ils de meilleurs jours ?', getX: getPhys, getY: bilanGetMood, lag: 0},
+    {title: 'Anxiété → sommeil de la nuit suivante',      desc: 'Une journée anxieuse précède-t-elle une nuit plus courte ?', getX: getAnx, getY: tendGetSleepHours, lag: 1},
+    {title: 'Cafés → anxiété (même jour)',                desc: 'Le café s\'accompagne-t-il de plus d\'anxiété ?', getX: getCafes, getY: getAnx, lag: 0},
+    {title: 'Réseaux sociaux → sommeil de la nuit suivante', desc: 'Plus d\'écran le jour, nuit plus courte ensuite ?', getX: getSocial, getY: tendGetSleepHours, lag: 1}
+  ];
+  return PAIRS.map(p => {
+    const al = explAlignPairs(entries, p.getX, p.getY, p.lag);
+    const res = explPearson(al.xs, al.ys);
+    return {title: p.title, desc: p.desc, r: res.r, n: res.n};
+  });
+}
+/* ===== EXPL-PURE-END ===== */
+
+/* ===== Onglet Explorer : rendu ===== */
+
+const EXPLORE_VIEWS = [
+  ['days', 'Bons jours'],
+  ['heatmap', 'Heatmap'],
+  ['weekly', 'Hebdo'],
+  ['activities_impact', 'Activités'],
+  ['corr_short', 'Corrélations']
+];
+
+function renderExplorer(c, entries){
+  const bar = document.createElement('div');
+  bar.className = 'heatmap-metric-selector';
+  bar.id = 'explore-views';
+  bar.style.marginBottom = '14px';
+  bar.innerHTML = EXPLORE_VIEWS.map(([k, lab]) =>
+    `<button class="heatmap-metric-btn${state.exploreView === k ? ' active' : ''}" data-eview="${k}">${lab}</button>`).join('');
+  c.appendChild(bar);
+  bar.addEventListener('click', e => {
+    const btn = e.target.closest('[data-eview]');
+    if(!btn) return;
+    state.exploreView = btn.dataset.eview;
+    renderStats();
+  });
+
+  if(state.exploreView === 'days') renderGoodBadDays(c, entries);
+  else if(state.exploreView === 'heatmap') renderHeatmap(c, entries);
+  else if(state.exploreView === 'weekly') renderWeeklySummary(c, entries);
+  else if(state.exploreView === 'activities_impact') renderActivitiesImpact(c, entries);
+  else if(state.exploreView === 'corr_short') renderShortCorrelations(c, entries);
+}
+
+function renderGoodBadDays(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  const r = explGoodBadDays(entries);
+
+  if(!r.ok){
+    sec.innerHTML = '<h3>Bons jours / jours difficiles</h3>'
+      + '<div class="history-empty">Pas encore assez de données : ' + r.n + ' jour' + (r.n > 1 ? 's' : '') + ' avec humeur saisie, minimum ' + r.min + '. Comparer des quartiles sur si peu de jours produirait du bruit, pas des enseignements.</div>';
+    c.appendChild(sec);
+    return;
+  }
+
+  const fmtN = (v, unit) => {
+    if(v === null) return '—';
+    let s;
+    if(unit === 'h'){
+      const h = Math.floor(v), m = Math.round((v - h) * 60);
+      s = h + ' h ' + String(m).padStart(2, '0');
+    } else if(unit === 'min'){
+      s = Math.round(v) + ' min';
+    } else {
+      s = (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
+    }
+    return s;
+  };
+  const pct = v => Math.round(v * 100) + '%';
+
+  let rows = '';
+  r.metrics.forEach(m => {
+    rows += '<tr><td>' + m.label + '</td><td>' + fmtN(m.good, m.unit) + '</td><td>' + fmtN(m.bad, m.unit) + '</td></tr>';
+  });
+
+  const tagList = (arr, side) => {
+    if(!arr.length) return '<div class="gbd-tags-empty">Rien de net.</div>';
+    return arr.map(t => '<div class="gbd-tag">' + escapeHtml(t.tag) + ' <span class="gbd-pct">' + pct(side === 'good' ? t.goodPct : t.badPct) + ' vs ' + pct(side === 'good' ? t.badPct : t.goodPct) + '</span></div>').join('');
+  };
+
+  sec.innerHTML = '<h3>Bons jours / jours difficiles</h3>'
+    + '<div class="home-note" style="margin-bottom:14px">Comparaison de tes ' + r.q + ' meilleurs jours d\'humeur (moy. ' + (Math.round(r.goodMood * 10) / 10).toFixed(1).replace('.', ',') + '/10) et de tes ' + r.q + ' plus difficiles (moy. ' + (Math.round(r.badMood * 10) / 10).toFixed(1).replace('.', ',') + '/10), sur ' + r.n + ' jours saisis. Ce sont des associations, pas des causes : un lien peut aller dans les deux sens.</div>'
+    + '<div class="stats-card" style="overflow-x:auto;margin-bottom:14px"><table class="weekly-table">'
+    + '<thead><tr><th></th><th>Bons jours</th><th>Jours difficiles</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<div class="gbd-cols">'
+    + '<div class="stats-card"><div class="gbd-col-title good">Plus présents les bons jours</div>' + tagList(r.moreOnGood, 'good') + '</div>'
+    + '<div class="stats-card"><div class="gbd-col-title bad">Plus présents les jours difficiles</div>' + tagList(r.moreOnBad, 'bad') + '</div>'
+    + '</div>';
+  c.appendChild(sec);
+}
+
+function renderShortCorrelations(c, entries){
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  sec.innerHTML = '<h3>Corrélations : les 5 paires les plus parlantes</h3>'
+    + '<div class="home-note" style="margin-bottom:14px">Corrélation n\'est pas causalité : un lien peut venir d\'un troisième facteur ou aller dans les deux sens. Le nombre de jours utilisés est indiqué pour chaque paire ; en dessous de 15 jours, prudence.</div>';
+  c.appendChild(sec);
+
+  explShortCorrelations(entries).forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'corr-card';
+    const cls = Math.abs(p.r) >= 0.5 ? 'strong' : Math.abs(p.r) >= 0.3 ? 'medium' : 'weak';
+    card.innerHTML = '<div class="corr-title">' + p.title + '</div>'
+      + '<div class="corr-desc">' + p.desc + '</div>'
+      + '<div class="corr-result">'
+      + '<div class="corr-r ' + cls + '">' + (isNaN(p.r) ? '—' : (p.r >= 0 ? '+' : '') + p.r.toFixed(2)) + '</div>'
+      + '<div class="corr-meaning">' + interpretCorr(p.r) + '<br><span style="color:var(--text-faint);font-size:11px">' + p.n + ' jour' + (p.n > 1 ? 's' : '') + ' utilisé' + (p.n > 1 ? 's' : '') + '</span></div>'
+      + '</div>';
+    c.appendChild(card);
+  });
+}
+
+/* Selecteur de periode des frequences de ressentis (30 j par defaut : un symptome disparu
+   depuis deux mois ne doit plus peser autant qu'un symptome actuel) */
+function feelPeriodSelectorHtml(){
+  const P = [[30, '30 j'], [90, '90 j'], [0, 'Tout']];
+  return '<div class="heatmap-metric-selector" id="feel-period" style="margin-bottom:10px">' + P.map(([n, lab]) =>
+    '<button class="heatmap-metric-btn' + (state.feelPeriod === n ? ' active' : '') + '" data-fperiod="' + n + '">' + lab + '</button>').join('') + '</div>';
+}
+function bindFeelPeriod(sec){
+  const el = sec.querySelector('#feel-period');
+  if(!el) return;
+  el.addEventListener('click', e => {
+    const btn = e.target.closest('[data-fperiod]');
+    if(!btn) return;
+    state.feelPeriod = parseInt(btn.dataset.fperiod, 10);
+    renderStats();
+  });
+}
+
 function renderCurves(c, entries){
   // Filtre de période
   const PERIODS = [[7,'7 j'],[14,'14 j'],[30,'1 mois'],[90,'3 mois'],[0,'Tout']];
@@ -3439,6 +3711,7 @@ function interpretCorr(r){
 function renderSideEffectsChart(c, entries){
   const sec = document.createElement('div');
   sec.className = 'stats-section';
+  entries = explFilterPeriod(entries, state.feelPeriod, logicalDateStr());
 
   const counts = {};
   entries.forEach(e => {
@@ -3451,8 +3724,9 @@ function renderSideEffectsChart(c, entries){
 
   const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
   if(sorted.length === 0){
-    sec.innerHTML = '<h3>Fréquence des ressentis négatifs</h3><div class="history-empty">Aucun ressenti négatif enregistré.</div>';
+    sec.innerHTML = '<h3>Fréquence des ressentis négatifs</h3>' + feelPeriodSelectorHtml() + '<div class="history-empty">Aucun ressenti négatif enregistré sur la période.</div>';
     c.appendChild(sec);
+    bindFeelPeriod(sec);
     return;
   }
 
@@ -3462,9 +3736,11 @@ function renderSideEffectsChart(c, entries){
 
   sec.innerHTML = `
     <h3>Fréquence des ressentis négatifs</h3>
+    ${feelPeriodSelectorHtml()}
     <div class="stats-card"><div class="chart-wrap" style="height:${barH}px"><canvas id="chart-se"></canvas></div></div>
   `;
   c.appendChild(sec);
+  bindFeelPeriod(sec);
 
   const ctx = document.getElementById('chart-se').getContext('2d');
   state.charts.side_effects = new Chart(ctx, {
@@ -3507,6 +3783,7 @@ function renderSideEffectsChart(c, entries){
 function renderPositiveFeelingsChart(c, entries){
   const sec = document.createElement('div');
   sec.className = 'stats-section';
+  entries = explFilterPeriod(entries, state.feelPeriod, logicalDateStr());
 
   const counts = {};
   entries.forEach(e => {
@@ -3516,8 +3793,9 @@ function renderPositiveFeelingsChart(c, entries){
 
   const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
   if(sorted.length === 0){
-    sec.innerHTML = '<h3>Fréquence des ressentis positifs</h3><div class="history-empty">Aucun ressenti positif enregistré pour l\'instant.</div>';
+    sec.innerHTML = '<h3>Fréquence des ressentis positifs</h3>' + feelPeriodSelectorHtml() + '<div class="history-empty">Aucun ressenti positif enregistré sur la période.</div>';
     c.appendChild(sec);
+    bindFeelPeriod(sec);
     return;
   }
 
@@ -3526,8 +3804,10 @@ function renderPositiveFeelingsChart(c, entries){
   const barH   = Math.max(220, sorted.length * 30);
 
   sec.innerHTML = '<h3>Fréquence des ressentis positifs</h3>'
+    + feelPeriodSelectorHtml()
     +'<div class="stats-card"><div class="chart-wrap" style="height:'+barH+'px"><canvas id="chart-pf"></canvas></div></div>';
   c.appendChild(sec);
+  bindFeelPeriod(sec);
 
   const ctx = document.getElementById('chart-pf').getContext('2d');
   state.charts.positive_feelings = new Chart(ctx, {
@@ -4046,7 +4326,7 @@ function exportPDF(){
     : '<span style="color:#aaa">—</span>';
 
   // --- Classification activités : social vs activités ---
-  const PERSONS_LIST = ['Rebecca','Juliette','Elèves','Florence','Giovanni','Aalehx','Adma','Axelle','Benjamin','Luca','Yann','Solitude'];
+  const PERSONS_LIST = ACTIVITY_CATEGORIES.find(cat => cat.label.indexOf('Personnes') !== -1).items; // source unique (audit n.1)
   const SOCIAL_TAGS  = ['Musique Fun Partagée','Stream','Jeu Vidéo Co-Op','Cours / Atelier','Concert'];
   const isSocial     = (a) => PERSONS_LIST.includes(a) || SOCIAL_TAGS.includes(a);
 
