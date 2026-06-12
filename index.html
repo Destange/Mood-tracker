@@ -373,7 +373,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
         <div class="home-stat"><div class="num" id="stat-sleep">—</div><div class="lbl">Sommeil (qual.) <span id="trend-sleep"></span></div></div>
         <div class="home-stat"><div class="num" id="stat-energy">—</div><div class="lbl">Énergie <span id="trend-energy"></span></div></div>
         <div class="home-stat"><div class="num" id="stat-fog">—</div><div class="lbl">Brouillard <span id="trend-fog"></span></div></div>
-        <div class="home-stat"><div class="num" id="stat-blunting">—</div><div class="lbl">Sensib. émot. <span id="trend-blunting"></span></div></div>
+        <div class="home-stat"><div class="num" id="stat-blunting">—</div><div class="lbl">Attachement <span id="trend-blunting"></span></div></div>
       </div>
     </div>
 
@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.14.1';
+const VERSION = '1.15.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -684,7 +684,8 @@ const FIELD_DEFS = {
   energy: {type:'integer-0-10', label:"Énergie du jour, bilan (0=épuisé, 10=disponible)"},
   anxiety: {type:'integer-0-10', label:"Anxiété du jour, bilan (0=aucune, 10=très intense)"},
   brain_fog: {type:'integer-0-10', label:"Brouillard mental, bilan journée (0=clair, 10=très embrumé)"},
-  blunting: {type:'integer--5-5', label:"Sensibilité émotionnelle (−5=émoussé/anesthésié, 0=neutre, +5=à fleur de peau)"},
+  blunting: {type:'integer--5-5', label:"Attachement aux proches (−5=aucun lien ressenti, 0=lien habituel, +5=élans inhabituellement forts)"},
+  resonance: {type:'integer--5-5', label:"Résonance émotionnelle (−5=éteinte, 0=présente et vivable, +5=envahissante)"},
   libido: {type:'enum', values:['absente','diminuee','normale'], label:"Libido, par rapport à la normale personnelle"},
   mood_evening: {type:'integer-0-10', label:"Humeur du jour (0=très basse, 10=très haute). Avant v1.9.0 : appréciation globale de la journée"},
   suicidal: {type:'enum', values:['aucune','fugaces','presentes','intenses'], label:"Idéations suicidaires"},
@@ -781,13 +782,13 @@ const SKINS = {
 };
 
 const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','weight','note_morning'];
-const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
+const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','resonance','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
 const STEP_LABELS = {
   sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
   dreams:'Rêves & cauchemars', mood_morning:'Humeur au réveil',
   weight:'Poids', note_morning:'Note du matin',
   meds:'Médicaments', cafes_alcohol:'Cafés & alcool', energy:'Énergie globale', anxiety:'Anxiété', brain_fog:'Brouillard mental (journée)',
-  blunting:'Sensibilité émotionnelle', libido:'Libido', mood_evening:'Humeur du jour', suicidal:'Pensées suicidaires',
+  blunting:'Attachement aux proches', resonance:'Résonance émotionnelle', libido:'Libido', mood_evening:'Humeur du jour', suicidal:'Pensées suicidaires',
   rgo:'Reflux (RGO)', side_effects:'Ressentis négatifs', positive_feelings:'Ressentis positifs ✨',
   activities:'Activités du jour', physical_activity:'Activité physique', social_media:'Réseaux sociaux', notable_event:'Événement marquant', note:'Note libre'
 };
@@ -993,7 +994,7 @@ const MORNING_STEPS = [
 ];
 /* Soir, en 4 blocs : corps et consommations, etats internes, comportements, synthese */
 const EVENING_STEPS = [
-  'meds', 'cafes_alcohol', 'rgo', 'energy', 'brain_fog', 'anxiety', 'blunting', 'libido', 'suicidal', 'activities', 'physical_activity', 'social_media', 'side_effects', 'positive_feelings', 'notable_event', 'mood_evening', 'note', 'recap'
+  'meds', 'cafes_alcohol', 'rgo', 'energy', 'brain_fog', 'anxiety', 'blunting', 'resonance', 'libido', 'suicidal', 'activities', 'physical_activity', 'social_media', 'side_effects', 'positive_feelings', 'notable_event', 'mood_evening', 'note', 'recap'
 ];
 /* Saisie minimale du soir : l'essentiel, le reste reste vide (null) */
 const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 'note', 'recap'];
@@ -1002,7 +1003,7 @@ const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 
 
 /* Listes officielles des champs par session (source unique : blankEntry) */
 const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
-const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','resonance','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
 
@@ -1158,6 +1159,7 @@ function blankEntry(date){
     anxiety: null,
     brain_fog: null,
     blunting: null,
+    resonance: null,
     libido: null,
     mood_evening: null,
     suicidal: 'aucune',
@@ -1215,7 +1217,7 @@ window.applyEntryDate = function(){
 };
 /* Champs non poses en saisie minimale : vides (null), pas de faux zeros.
    Exception voulue : la mianserine reste a la dose par defaut (routine quotidienne). */
-const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','libido','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
+const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','resonance','libido','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
 function startMinimalEvening(){
   MINIMAL_NULL_FIELDS.forEach(f => { state.entryDraft[f] = null; });
   const hasQn = state.entrySteps[0] === 'quicknotes_review';
@@ -1363,7 +1365,7 @@ function buildStep(step){
   }
 
   if(step === 'blunting'){
-    const w = stepWrap(idx, "Sensibilité émotionnelle ?", "−5 = émoussé, anesthésié · 0 = neutre · +5 = à fleur de peau.");
+    const w = stepWrap(idx, "Ton attachement à tes proches ?", "−5 = aucun lien ressenti · 0 = ton lien habituel · +5 = élans inhabituellement forts.");
     const sw = document.createElement('div');
     sw.className = 'slider-wrap';
     const val = d.blunting;
@@ -1381,6 +1383,33 @@ function buildStep(step){
       const commit = () => {
         d.blunting = parseInt(sl.value);
         sv.textContent = d.blunting > 0 ? '+'+d.blunting : String(d.blunting);
+        document.getElementById('entry-next').disabled = false;
+      };
+      sl.addEventListener('input', commit);
+      sl.addEventListener('click', commit);
+    },0);
+    return w;
+  }
+
+  if(step === 'resonance'){
+    const w = stepWrap(idx, "Ta résonance émotionnelle ?", "À quel point les émotions te traversent : les tiennes, celles des autres. −5 = éteinte · 0 = présente et vivable · +5 = envahissante.");
+    const sw = document.createElement('div');
+    sw.className = 'slider-wrap';
+    const val = d.resonance;
+    const hasVal = (val !== null && val !== undefined);
+    const dispVal = !hasVal ? '—' : (val > 0 ? '+'+val : String(val));
+    sw.innerHTML = `
+      <div class="slider-value" id="sv-resonance">${dispVal}</div>
+      <input type="range" min="-5" max="5" step="1" value="${hasVal ? val : 0}" id="sl-resonance">
+      <div class="slider-labels"><span>−5</span><span>0</span><span>+5</span></div>`;
+    w.appendChild(sw);
+    if(!hasVal) document.getElementById('entry-next').disabled = true;
+    setTimeout(()=>{
+      const sl = document.getElementById('sl-resonance');
+      const sv = document.getElementById('sv-resonance');
+      const commit = () => {
+        d.resonance = parseInt(sl.value);
+        sv.textContent = d.resonance > 0 ? '+'+d.resonance : String(d.resonance);
         document.getElementById('entry-next').disabled = false;
       };
       sl.addEventListener('input', commit);
@@ -2097,7 +2126,8 @@ if(step === 'positive_feelings'){
       if(typeof d.energy === 'number') rows.push(['Énergie globale', `${d.energy}/10`]);
       if(typeof d.anxiety === 'number') rows.push(['Anxiété', `${d.anxiety}/10`]);
       if(typeof d.brain_fog === 'number') rows.push(['Brouillard (journée)', `${d.brain_fog}/10`]);
-      if(typeof d.blunting === 'number') rows.push(['Sensibilité émotionnelle', `${d.blunting > 0 ? '+' : ''}${d.blunting}`]);
+      if(typeof d.blunting === 'number') rows.push(['Attachement aux proches', `${d.blunting > 0 ? '+' : ''}${d.blunting}`]);
+      if(typeof d.resonance === 'number') rows.push(['Résonance émotionnelle', `${d.resonance > 0 ? '+' : ''}${d.resonance}`]);
       if(d.libido) rows.push(['Libido', libidoLabel(d.libido)]);
       if(typeof d.mood_evening === 'number') rows.push(['Humeur', `${d.mood_evening}/10`]);
       rows.push(['Idéations', suicidalLabel(d.suicidal)]);
@@ -2338,6 +2368,7 @@ function formatStepValue(e, step){
     case 'anxiety': return e.anxiety != null ? `${e.anxiety}/10` : dash;
     case 'brain_fog': return e.brain_fog != null ? `${e.brain_fog}/10` : dash;
     case 'blunting': return e.blunting != null ? `${e.blunting>=0?'+':''}${e.blunting}` : dash;
+    case 'resonance': return e.resonance != null ? `${e.resonance>=0?'+':''}${e.resonance}` : dash;
     case 'libido': return e.libido ? libidoLabel(e.libido) : dash;
     case 'mood_evening': return e.mood_evening != null ? `${e.mood_evening}/10` : dash;
     case 'suicidal': return suicidalLabel(e.suicidal) || dash;
@@ -2904,6 +2935,12 @@ function tendMianserineEvents(entries){
   return evts;
 }
 
+// Reformulations de questions/échelles (audit décision 1 : annoter les changements de formulation)
+const TEND_SCALE_EVENTS = [
+  {date: '2026-06-11', label: 'Reformulation humeur'},
+  {date: '2026-06-12', label: 'Attachement / Résonance'}
+];
+
 // Dates des événements marquants cochés dans les saisies
 function tendNotableDates(entries){
   return entries.filter(e => e.evening_done && e.notable_event).map(e => e.date);
@@ -2913,6 +2950,7 @@ function tendNotableDates(entries){
 function tendGetEnergy(e){ return (e.evening_done && typeof e.energy === 'number') ? e.energy : null; }
 function tendGetFog(e){ return (e.evening_done && typeof e.brain_fog === 'number') ? e.brain_fog : null; }
 function tendGetBlunting(e){ return (e.evening_done && typeof e.blunting === 'number') ? e.blunting : null; }
+function tendGetResonance(e){ return (e.evening_done && typeof e.resonance === 'number') ? e.resonance : null; }
 function tendGetSleepHours(e){ const m = bilanGetSleepMin(e); return m === null ? null : m / 60; }
 /* ===== TEND-PURE-END ===== */
 
@@ -2924,7 +2962,8 @@ const TEND_METRICS = [
   {key:'energy',  label:'Énergie',                   color:'#9b6dff', getter: tendGetEnergy,    yMin:0,  yMax:10},
   {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:0, yMax:12},
   {key:'fog',     label:'Brouillard',                color:'#7a92aa', getter: tendGetFog,       yMin:0,  yMax:10},
-  {key:'blunt',   label:'Sensibilité émot. (-5/+5)', color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5}
+  {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5},
+  {key:'reso',    label:'Résonance émot. (-5/+5)',   color:'#c98bdb', getter: tendGetResonance, yMin:-5, yMax:5}
 ];
 
 // Plugin inline : lignes verticales des événements de traitement (ambre, libellés dans la légende
@@ -2984,7 +3023,7 @@ function renderTendances(c, entries){
   const labels = dates.map(d => d.slice(8,10) + '/' + d.slice(5,7));
 
   const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
-  const events = tendTaperEvents(taper).concat(tendMianserineEvents(entries))
+  const events = tendTaperEvents(taper).concat(tendMianserineEvents(entries)).concat(TEND_SCALE_EVENTS)
     .filter(ev => ev.date >= from && ev.date <= today);
   const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
 
@@ -3404,7 +3443,7 @@ function renderCurves(c, entries){
         {label:'Brouillard',      data: entries.map(e=>e.brain_fog), borderColor:'#7a92aa', backgroundColor:'rgba(122,146,170,.1)', tension:.3, fill:false, pointRadius:3},
         {label:'Miansérine',      data: entries.map(e=>(e.evening_done && e.mianserine_mg != null) ? Math.min(10, e.mianserine_mg / 6) : null), borderColor:'#5dbb63', backgroundColor:'rgba(93,187,99,.1)', tension:.3, fill:false, pointRadius:3},
         // Courbes secondaires : pointilles, masquees par defaut
-        {label:'Sensibilité émot.', data: entries.map(e=>bluntNorm(e.blunting)), borderColor:'#6b7785', backgroundColor:'rgba(107,119,133,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[4,4], hidden:true},
+        {label:'Attachement', data: entries.map(e=>bluntNorm(e.blunting)), borderColor:'#6b7785', backgroundColor:'rgba(107,119,133,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[4,4], hidden:true},
         {label:'Activité physique', data: entries.map(e=>e.physical_activity!=null ? e.physical_activity/3*10 : null), borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[5,3], hidden:true},
         {label:'Cafés (normalisé)', data: entries.map(e=>e.cafes_count!=null ? Math.min(10,e.cafes_count/5*10) : null), borderColor:'#c8860a', backgroundColor:'rgba(200,134,10,.1)', tension:.3, fill:false, pointRadius:3, borderDash:[2,4], hidden:true},
         {label:'Réseaux sociaux',   data: entries.map(e=>e.social_media_min!=null ? Math.min(10,e.social_media_min/180*10) : null), borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', tension:.3, fill:false, pointRadius:2, borderDash:[1,3], hidden:true}
@@ -3440,9 +3479,9 @@ function renderCurves(c, entries){
                 const m = e.sleep_duration_min % 60;
                 return `Durée sommeil : ${h}h${m ? m : ''} → score ${v}/10`;
               }
-              if(ds === 'Sensibilité émot.'){
+              if(ds === 'Attachement'){
                 const raw = e.blunting != null ? (e.blunting >= 0 ? '+' : '') + e.blunting : '—';
-                return `Sensibilité émot. : ${raw} → score ${v}/10`;
+                return `Attachement : ${raw} → score ${v}/10`;
               }
               if(ds === 'Brouillard') return `Brouillard : ${v != null ? v : '—'}/10`;
               if(ds === 'Miansérine') return `Miansérine : ${(e.evening_done && e.mianserine_mg != null) ? e.mianserine_mg + ' mg' : '—'}`;
@@ -3673,10 +3712,10 @@ function renderCorrelations(c, entries){
     {x:'sleep_quality', y:'mood_evening', lag:1, xLabel:'Sommeil (J)', yLabel:"Humeur glob. (J+1)", desc:"Le sommeil prédit-il l'humeur globale du lendemain ?"},
     {x:'cafes_count', y:'sleep_quality', xLabel:"Cafés", yLabel:"Sommeil", desc:"Le nombre de cafés affecte-t-il la qualité du sommeil ?"},
     {x:'cafes_count', y:'anxiety', xLabel:"Cafés", yLabel:"Anxiété", desc:"Le café augmente-t-il ton niveau d'anxiété ?"},
-    {x:'sleep_quality', y:'blunting', xLabel:"Sommeil", yLabel:"Sensibilité émotionnelle", desc:"Une bonne nuit influence-t-elle ta sensibilité émotionnelle ?"},
+    {x:'sleep_quality', y:'blunting', xLabel:"Sommeil", yLabel:"Attachement", desc:"Une bonne nuit influence-t-elle ton attachement ressenti ?"},
     {x:'physical_activity', y:'mood_evening', xLabel:"Activité physique", yLabel:"Humeur globale", desc:"L'activité physique améliore-t-elle l'humeur globale de la journée ?"},
     {x:'anxiety', y:'sleep_quality', lag:0, xLabel:"Anxiété", yLabel:"Sommeil", desc:"L'anxiété affecte-t-elle ton sommeil ?"},
-    {x:'blunting', y:'paroxetine_mg', xLabel:"Sensibilité émotionnelle", yLabel:"Paroxétine", desc:"La sensibilité émotionnelle augmente-t-elle en réduisant la paroxétine ?"},
+    {x:'blunting', y:'paroxetine_mg', xLabel:"Attachement", yLabel:"Paroxétine", desc:"L'attachement ressenti évolue-t-il avec la dose de paroxétine ?"},
     {x:'social_media_min', y:'sleep_quality', xLabel:"Réseaux sociaux (min)", yLabel:"Sommeil", desc:"Le temps d'écran en soirée nuit-il à la qualité du sommeil ?"},
     {x:'physical_activity', y:'anxiety', xLabel:"Activité physique", yLabel:"Anxiété", desc:"L'activité physique réduit-elle l'anxiété le même jour ?"},
     {x:'physical_activity', y:'sleep_quality', xLabel:"Activité physique", yLabel:"Sommeil", desc:"Bouger dans la journée améliore-t-il la qualité du sommeil ?"},
@@ -4031,13 +4070,13 @@ function renderWeeklySummary(c, entries){
 
   sec.innerHTML = `
     <h3>Résumé hebdomadaire</h3>
-    <div class="home-note" style="margin-bottom:14px">Moyennes par semaine des indicateurs saisis. Pertinent pour repérer une <strong>tendance sur la durée</strong> : une valeur isolée ne dit rien, c'est la direction semaine après semaine qui compte. Particulièrement utile pendant un sevrage pour distinguer un creux passager d'une régression réelle. Sensib. émot. est affichée signée (−5 à +5).</div>
+    <div class="home-note" style="margin-bottom:14px">Moyennes par semaine des indicateurs saisis. Pertinent pour repérer une <strong>tendance sur la durée</strong> : une valeur isolée ne dit rien, c'est la direction semaine après semaine qui compte. Particulièrement utile pendant un sevrage pour distinguer un creux passager d'une régression réelle. Attachement est affiché signé (−5 à +5).</div>
     <div class="stats-card" style="overflow-x:auto">
       <table class="weekly-table">
         <thead><tr>
           <th>Semaine</th><th>J.</th>
           <th>Humeur</th><th>Sommeil (durée)</th><th>Anxiété</th><th>Énergie</th>
-          <th>Brouillard</th><th>Sensib.</th><th>Activité</th><th>Cafés</th>
+          <th>Brouillard</th><th>Attach.</th><th>Activité</th><th>Cafés</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -4205,7 +4244,7 @@ function exportJSON(){
 }
 
 function exportCSV(){
-  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','resonance','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
   const header = cols.join(';');
   const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
     cols.map(c => csvEscape(e[c])).join(';')
@@ -4245,7 +4284,8 @@ function exportMarkdown(){
     md += `| Brouillard mental (journée) | ${avg('brain_fog')} / 10 |\n`;
     md += `| Énergie journée | ${avg('energy')} / 10 |\n`;
     md += `| Anxiété | ${avg('anxiety')} / 10 |\n`;
-    md += `| Sensibilité émotionnelle | ${avg('blunting')} |\n`;
+    md += `| Attachement aux proches | ${avg('blunting')} |\n`;
+    md += `| Résonance émotionnelle | ${avg('resonance')} |\n`;
     md += `| Activité physique | ${avg('physical_activity')} / 3 |\n`;
     md += `| Cafés (moy.) | ${avg('cafes_count')} |\n`;
   }
@@ -4267,7 +4307,7 @@ function exportMarkdown(){
       md += `**Soir**\n`;
       { const doses = []; if(e.paroxetine_mg) doses.push(`paroxétine ${e.paroxetine_mg}mg`); if(typeof e.mianserine_mg==='number') doses.push(`miansérine ${e.mianserine_mg}mg`); if(typeof e.oxazepam_mg==='number') doses.push(`oxazépam ${e.oxazepam_mg}mg`); if(doses.length) md += `- Doses : ${doses.join(', ')}\n`; }
       { const conso = []; if(typeof e.cafes_count==='number') conso.push(`Cafés ${e.cafes_count}`); if(typeof e.alcohol_units==='number') conso.push(`Alcool ${e.alcohol_units}`); if(e.gaviscon_doses) conso.push('Gaviscon '+e.gaviscon_doses); if(e.pantoprazole_doses) conso.push('Panto. '+e.pantoprazole_doses); if(e.ltyrosine_mg) conso.push('L-Tyr '+e.ltyrosine_mg+'mg'); if(conso.length) md += `- ${conso.join(' · ')}\n`; }
-      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Sensibilité émot. ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
+      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Attachement ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(typeof e.resonance==='number') st.push(`Résonance ${e.resonance > 0 ? '+' : ''}${e.resonance}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
       if(typeof e.mood_evening==='number') md += `- Humeur : ${e.mood_evening}/10\n`;
       const phLabels = {0:'Sédentaire',1:'Légèrement actif',2:'Actif',3:'Cardio'};
       if(e.physical_activity !== null && e.physical_activity !== undefined) md += `- Activité physique : ${phLabels[e.physical_activity]||'—'}\n`;
@@ -4481,12 +4521,18 @@ function exportPDF(){
       dh += '<tr><td>Anxiété</td><td>'+scoreSpan(e.anxiety,false)+'/10</td></tr>';
       dh += '<tr><td>Énergie</td><td>'+scoreSpan(e.energy,true)+'/10</td></tr>';
       dh += '<tr><td>Brouillard</td><td>'+scoreSpan(e.brain_fog,false)+'/10</td></tr>';
-      // Blunting sur /5 avec signe
+      // Échelles signées /5 : attachement (champ blunting) et résonance
       if(e.blunting !== null && e.blunting !== undefined){
         const bl = e.blunting;
         const blStr = (bl>0?'+':'')+bl+'/5';
         const blColor = bl < -2 ? '#c0392b' : bl > 2 ? '#7b2fbe' : bl === 0 ? '#888' : '#b36b00';
-        dh += '<tr><td>Sensib. émot.</td><td><span style="font-weight:600;color:'+blColor+'">'+blStr+'</span></td></tr>';
+        dh += '<tr><td>Attachement</td><td><span style="font-weight:600;color:'+blColor+'">'+blStr+'</span></td></tr>';
+      }
+      if(e.resonance !== null && e.resonance !== undefined){
+        const rs = e.resonance;
+        const rsStr = (rs>0?'+':'')+rs+'/5';
+        const rsColor = rs < -2 ? '#c0392b' : rs > 2 ? '#7b2fbe' : rs === 0 ? '#888' : '#b36b00';
+        dh += '<tr><td>Résonance émot.</td><td><span style="font-weight:600;color:'+rsColor+'">'+rsStr+'</span></td></tr>';
       }
       if(e.libido){
         dh += '<tr><td>Libido</td><td>'+({absente:'Absente',diminuee:'Diminuée',normale:'Normale'}[e.libido]||e.libido)+'</td></tr>';
@@ -4634,7 +4680,8 @@ function exportPDF(){
     +'<tr><td>Anxiété</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'anxiety'),false)+'">'+avg(entries.filter(e=>e.evening_done),'anxiety')+' /10</td></tr>'
     +'<tr><td>Énergie journée</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'energy'),true)+'">'+avg(entries.filter(e=>e.evening_done),'energy')+' /10</td></tr>'
     +'<tr><td>Brouillard mental</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'brain_fog'),false)+'">'+avg(entries.filter(e=>e.evening_done),'brain_fog')+' /10</td></tr>'
-    +'<tr><td>Sensibilité émot.</td><td class="num">'+avgAll('blunting')+' /5</td></tr>'
+    +'<tr><td>Attachement aux proches</td><td class="num">'+avgAll('blunting')+' /5</td></tr>'
+    +'<tr><td>Résonance émot.</td><td class="num">'+avgAll('resonance')+' /5</td></tr>'
     +'</table></div>'
     +'</div>'
     +'<h2>Résumés hebdomadaires</h2>'
