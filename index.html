@@ -224,7 +224,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .heatmap-month{}
 .heatmap-month-label{font-size:12px;color:var(--text-faint);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
 .heatmap-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.heatmap-cell{aspect-ratio:1;border-radius:3px;background:var(--bg-3);position:relative;cursor:pointer;transition:var(--t);display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;overflow:hidden;user-select:none}
+.heatmap-cell{aspect-ratio:1;border-radius:3px;background:var(--bg-3);position:relative;cursor:pointer;transition:var(--t);display:flex;align-items:center;justify-content:center;font-size:clamp(20px,9.6vw,62px);line-height:1;overflow:hidden;user-select:none}
 .heatmap-cell:hover{transform:scale(1.15);z-index:5}
 .heatmap-cell.empty{background:var(--bg-3);opacity:.4}
 .heatmap-cell.future{background:transparent;opacity:0}
@@ -278,6 +278,9 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 
 /* toast */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-4);color:var(--text);padding:14px 22px;border-radius:var(--radius);box-shadow:var(--shadow);font-size:14px;font-weight:500;opacity:0;transition:var(--t);pointer-events:none;z-index:100;border:1px solid var(--border);max-width:90%}
+.day-peek{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-4);color:var(--text);padding:10px 12px 10px 16px;border-radius:var(--radius);box-shadow:var(--shadow);font-size:13px;opacity:0;pointer-events:none;transition:var(--t);z-index:100;border:1px solid var(--border);display:flex;align-items:center;gap:10px;max-width:92%}
+.day-peek.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.day-peek .day-peek-close{background:none;border:none;color:var(--text-faint);font-size:15px;cursor:pointer;padding:4px 6px;line-height:1}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.success{border-color:var(--teal-dim)}
 .toast.error{border-color:var(--red-dim)}
@@ -545,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.13.0';
+const VERSION = '1.14.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -2572,6 +2575,7 @@ async function deleteSession(id, session){
    ============================================================ */
 
 function renderStats(){
+  hideDayPeek();
   const c = document.getElementById('stats-content');
   c.innerHTML = '';
   // Détruire les charts existants
@@ -2723,7 +2727,8 @@ function computeBilan(entries, today){
 function bilanFmt(v, dec){ return v.toFixed(dec === undefined ? 1 : dec).replace('.', ','); }
 function bilanFmtDelta(v){ return (v >= 0 ? '+' : '-') + bilanFmt(Math.abs(v)); }
 function bilanFmtHours(min){
-  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  const t = Math.round(min);
+  const h = Math.floor(t / 60), m = t % 60;
   return h + ' h ' + String(m).padStart(2, '0');
 }
 
@@ -3025,7 +3030,7 @@ function renderTendances(c, entries){
         onClick(evt, els){
           if(!els.length) return;
           const en = entries.find(x => x.date === dates[els[0].index]);
-          if(en) showEditDay(en.id, 'stats');
+          if(en) showDayPeek(en.id);
         },
         plugins: {
           legend: {display: false},
@@ -3200,8 +3205,7 @@ const EXPLORE_VIEWS = [
   ['days', 'Bons jours'],
   ['heatmap', 'Heatmap'],
   ['weekly', 'Hebdo'],
-  ['activities_impact', 'Activités'],
-  ['corr_short', 'Corrélations']
+  ['activities_impact', 'Activités']
 ];
 
 function renderExplorer(c, entries){
@@ -3223,7 +3227,7 @@ function renderExplorer(c, entries){
   else if(state.exploreView === 'heatmap') renderHeatmap(c, entries);
   else if(state.exploreView === 'weekly') renderWeeklySummary(c, entries);
   else if(state.exploreView === 'activities_impact') renderActivitiesImpact(c, entries);
-  else if(state.exploreView === 'corr_short') renderShortCorrelations(c, entries);
+  // corr_short retire de l'interface a la demande de Julien (12 juin 2026), renderShortCorrelations conservee
 }
 
 function renderGoodBadDays(c, entries){
@@ -3242,7 +3246,8 @@ function renderGoodBadDays(c, entries){
     if(v === null) return '—';
     let s;
     if(unit === 'h'){
-      const h = Math.floor(v), m = Math.round((v - h) * 60);
+      const t = Math.round(v * 60);
+      const h = Math.floor(t / 60), m = t % 60;
       s = h + ' h ' + String(m).padStart(2, '0');
     } else if(unit === 'min'){
       s = Math.round(v) + ' min';
@@ -3314,6 +3319,34 @@ function bindFeelPeriod(sec){
   });
 }
 
+/* Carte de confirmation au tap sur un point de courbe : montre le jour, ouvre au 2e tap */
+let dayPeekTimer = null;
+function hideDayPeek(){
+  const el = document.getElementById('day-peek');
+  if(el) el.classList.remove('show');
+  if(dayPeekTimer){ clearTimeout(dayPeekTimer); dayPeekTimer = null; }
+}
+function showDayPeek(entryId){
+  const entry = state.data.entries.find(e => e.id === entryId);
+  if(!entry) return;
+  let el = document.getElementById('day-peek');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'day-peek';
+    el.className = 'day-peek';
+    document.body.appendChild(el);
+  }
+  const mood = (entry.evening_done && typeof entry.mood_evening === 'number') ? ' · humeur ' + entry.mood_evening + '/10' : '';
+  el.innerHTML = '<span>' + formatDate(entry.date) + mood + '</span>'
+    + '<button class="btn btn-primary" id="day-peek-open" style="padding:6px 12px;font-size:12px">Voir le jour</button>'
+    + '<button class="day-peek-close" id="day-peek-close" aria-label="Fermer">✕</button>';
+  el.classList.add('show');
+  document.getElementById('day-peek-open').onclick = () => { hideDayPeek(); showEditDay(entryId, 'stats'); };
+  document.getElementById('day-peek-close').onclick = hideDayPeek;
+  if(dayPeekTimer) clearTimeout(dayPeekTimer);
+  dayPeekTimer = setTimeout(hideDayPeek, 6000);
+}
+
 function renderCurves(c, entries){
   // Filtre de période
   const PERIODS = [[7,'7 j'],[14,'14 j'],[30,'1 mois'],[90,'3 mois'],[0,'Tout']];
@@ -3382,7 +3415,7 @@ function renderCurves(c, entries){
       onClick(evt, els){
         if(!els.length) return;
         const en = entries[els[0].index];
-        if(en) showEditDay(en.id, 'stats');
+        if(en) showDayPeek(en.id);
       },
       elements: { point: { hitRadius: 12 } },
       plugins: {
@@ -3974,7 +4007,7 @@ function renderWeeklySummary(c, entries){
     const sun = new Date(monday); sun.setDate(sun.getDate()+6);
     const label = `${monday.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})} - ${sun.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}`;
     const mHumeur   = avg(ents, 'mood_evening');
-    const mSommeil  = avg(ents, 'sleep_quality');
+    const mSommeil  = (() => { const vals = ents.filter(en => en.morning_done && typeof en.sleep_duration_min === 'number' && en.sleep_duration_min > 0).map(en => en.sleep_duration_min); return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null; })();
     const mAnx      = avg(ents, 'anxiety');
     const mEnergy   = avg(ents, 'energy');
     const mFog      = avg(ents, 'brain_fog');
@@ -3985,7 +4018,7 @@ function renderWeeklySummary(c, entries){
       <td>${label}</td>
       <td>${ents.length}</td>
       <td>${fmt(mHumeur)}</td>
-      <td>${fmt(mSommeil)}</td>
+      <td>${mSommeil !== null ? bilanFmtHours(mSommeil) : '—'}</td>
       <td>${fmt(mAnx)}</td>
       <td>${fmt(mEnergy)}</td>
       <td>${fmt(mFog)}</td>
@@ -4002,7 +4035,7 @@ function renderWeeklySummary(c, entries){
       <table class="weekly-table">
         <thead><tr>
           <th>Semaine</th><th>J.</th>
-          <th>Humeur</th><th>Sommeil (qual.)</th><th>Anxiété</th><th>Énergie</th>
+          <th>Humeur</th><th>Sommeil (durée)</th><th>Anxiété</th><th>Énergie</th>
           <th>Brouillard</th><th>Sensib.</th><th>Activité</th><th>Cafés</th>
         </tr></thead>
         <tbody>${rows}</tbody>
