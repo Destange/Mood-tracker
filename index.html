@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.16.0';
+const VERSION = '1.16.1';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -821,7 +821,7 @@ function showView(name){
   if(name === 'history') renderHistoryView();
   if(name === 'stats') renderStats();
   if(name === 'settings') renderSettings();
-  document.getElementById('fab-quicknote').style.display = (name === 'entry' || name === 'edit-day' || name === 'history') ? 'none' : 'flex';
+  document.getElementById('fab-quicknote').style.display = (name === 'home') ? 'flex' : 'none';
 }
 
 /* ============================================================
@@ -908,7 +908,7 @@ function renderHome(){
   const entryMap7 = {};
   allEntries.forEach(e => { entryMap7[e.date] = e; });
 
-  // Fenetre calee sur le jour logique local (avant 6h on est encore sur la veille), pas sur l'UTC
+  // Fenetre calee sur le jour logique local (avant 7h on est encore sur la veille), pas sur l'UTC
   const anchor = new Date(logicalDateStr() + 'T12:00:00');
   const calDays = (offsetEnd, count) => {
     const arr = [];
@@ -979,10 +979,10 @@ function todayStr(){
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
-// Date "logique" : avant 6h du matin, on est encore dans la soirée de la veille
+// Date "logique" : avant 7h du matin, on est encore dans la soirée de la veille
 function logicalDateStr(){
   const d = new Date();
-  if(d.getHours() < 6) d.setDate(d.getDate() - 1);
+  if(d.getHours() < 7) d.setDate(d.getDate() - 1);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
@@ -1198,7 +1198,7 @@ function autoDetectSession(entry){
   if(entry && entry.morning_done && !entry.evening_done) return 'evening';
   if(entry && entry.evening_done && !entry.morning_done) return 'morning';
   const h = new Date().getHours();
-  return (h >= 20 || h < 6) ? 'evening' : 'morning';
+  return (h >= 20 || h < 7) ? 'evening' : 'morning';
 }
 
 function editEntryDate(){
@@ -4806,7 +4806,7 @@ function checkReminders(){
   if(!rem) return;
   const now = new Date();
   const curMin = now.getHours() * 60 + now.getMinutes();
-  // Date logique : avant 6h on est encore dans la soirée de la veille,
+  // Date logique : avant 7h on est encore dans la soirée de la veille,
   // donc le rappel "coucher" de 01h00 vise bien la session du soir de la veille.
   const logical = logicalDateStr();
   const entry = state.data.entries.find(e => e.date === logical);
