@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.14.0';
+const VERSION = '1.14.1';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -691,7 +691,7 @@ const FIELD_DEFS = {
   suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
   rgo: {type:'boolean', label:"RGO présent"},
   rgo_intensity: {type:'integer-0-10', label:"Intensité du RGO si présent"},
-  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
+  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite','tristesse_a_vif'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
   side_effects_other: {type:'text', label:"Précision de l'ancien tag 'autre' (héritage)"},
   positive_feelings: {type:'array-enum', label:"Ressentis positifs de la journée"},
   cafes_count: {type:'integer-0+', label:"Nombre de cafés dans la journée"},
@@ -749,6 +749,7 @@ const SIDE_EFFECT_LABELS = {
   cordes_vocales: 'Cordes vocales altérées',
   courbatures: 'Courbatures',
   desespoir_profond: 'Désespoir Profond',
+  tristesse_a_vif: 'Tristesse à vif',
   diarrhee: 'Diarrhée',
   eruption_cutanee: 'Éruption cutanée',
   fatigue_generale: 'Fatigue générale',
@@ -1607,7 +1608,7 @@ function buildStep(step){
     const w = stepWrap(idx, "Ressentis négatifs de la journée", "Coche tous ceux qui s'appliquent.");
     const SIDE_EFFECT_GROUPS = [
       {label: 'Corps', keys: ['bouche_seche','constipation','courbatures','diarrhee','fatigue_generale','grande_faim','grignotages','mal_tete','nausees','pas_appetit','tremblements','vertiges']},
-      {label: 'Émotions', keys: ['deconnecte','desespoir_profond','irritabilite','pleurs']}
+      {label: 'Émotions', keys: ['deconnecte','desespoir_profond','irritabilite','pleurs','tristesse_a_vif']}
     ];
     const predefinedKeys = Object.keys(SIDE_EFFECT_LABELS);
     const groupWraps = [];
