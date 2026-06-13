@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.16.1';
+const VERSION = '1.17.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -1118,6 +1118,19 @@ function startEntry(editId, session, forDate){
       state.editingEntryId = null;
     }
     state.entrySession = session || autoDetectSession(state.entryDraft);
+  }
+  // Coucher memorise au FAB : pre-rempli au reveil si la session matin n'est pas
+  // encore validee et que le champ est vide. Valeur perimee = ignoree puis nettoyee.
+  if(state.entrySession === 'morning'){
+    const pb = loadPendingBedtime();
+    if(pb){
+      if(pb.date === state.entryDraft.date && !state.entryDraft.morning_done && !state.entryDraft.sleep_bedtime){
+        state.entryDraft.sleep_bedtime = pb.time;
+        clearPendingBedtime();
+      } else if(pb.date < logicalDateStr()){
+        clearPendingBedtime();
+      }
+    }
   }
   let steps = state.entrySession === 'morning' ? MORNING_STEPS : [...EVENING_STEPS];
   if(state.entrySession === 'evening' && state.data.quicknotes && state.data.quicknotes.length > 0 && state.entryDraft.date === logicalDateStr()){
@@ -4887,6 +4900,50 @@ function toast(msg, type){
 }
 
 /* ============================================================
+   COUCHER EN ATTENTE (pre-rempli au reveil)
+   Cle locale a l'appareil, hors donnees synchronisees (meme principe
+   que les rappels et l'archive). Le bouton au coucher note l'heure du
+   telephone + 5 min ; la session du matin suivante la pre-remplit.
+   ============================================================ */
+const PENDING_BEDTIME_KEY = 'tracker_pending_bedtime_v1';
+
+/* PBED-PURE-BEGIN (logique pure, extractible pour les tests) */
+// Heure courante + 5 min, formatee HH:MM (24h). dateObj injectable pour les tests.
+function pendingBedtimeTime(dateObj){
+  const d = new Date((dateObj || new Date()).getTime() + 5*60000);
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+// Date de la session du matin visee = jour logique du coucher + 1.
+// (le coucher de ce soir se rapporte au reveil de demain matin)
+function pendingBedtimeTargetDate(logicalStr){
+  const [y,m,dd] = logicalStr.split('-').map(Number);
+  const d = new Date(y, m-1, dd);
+  d.setDate(d.getDate() + 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+/* PBED-PURE-END */
+
+function loadPendingBedtime(){
+  try{ return JSON.parse(localStorage.getItem(PENDING_BEDTIME_KEY)) || null; }
+  catch(e){ return null; }
+}
+function setPendingBedtime(){
+  const time = pendingBedtimeTime();
+  const date = pendingBedtimeTargetDate(logicalDateStr());
+  localStorage.setItem(PENDING_BEDTIME_KEY, JSON.stringify({date, time}));
+  return time;
+}
+function clearPendingBedtime(){
+  localStorage.removeItem(PENDING_BEDTIME_KEY);
+}
+window.recordBedtime = async function(){
+  const time = setPendingBedtime();
+  closeModal();
+  renderHome();
+  toast('Coucher noté à ' + time.replace(':','h') + ', pré-rempli demain matin.', 'success');
+};
+
+/* ============================================================
    QUICKNOTES
    ============================================================ */
 
@@ -4899,10 +4956,14 @@ function openQuicknoteModal(){
       existing.map(n => `<div class="qn-note-item"><div class="qn-note-time">${n.time}</div><div class="qn-note-text">${escapeHtml(n.text)}</div></div>`).join('') +
       '</div>';
   }
+  const pb = loadPendingBedtime();
+  const pbLine = pb ? `<div style="font-size:12px;color:var(--text-faint);margin-top:8px;text-align:center">Coucher mémorisé : ${escapeHtml(pb.time.replace(':','h'))} (pré-rempli au prochain réveil)</div>` : '';
   const html = `
     <h3>Note rapide</h3>
     ${listHtml}
     <textarea id="qn-input" placeholder="Ce que tu veux retenir pour ce soir..." style="min-height:100px"></textarea>
+    <button class="btn btn-secondary" onclick="recordBedtime()" style="width:100%;margin-top:12px">🌙 J'ai retenu l'heure du coucher</button>
+    ${pbLine}
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
       <button class="btn btn-primary" onclick="saveQuicknote()">Ajouter</button>
