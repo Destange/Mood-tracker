@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.17.0';
+const VERSION = '1.18.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -589,6 +589,7 @@ function loadData(){
     if(!state.data.quicknotes) state.data.quicknotes = [];
     if(!state.data.deleted_days) state.data.deleted_days = [];
     if(state.data.quicknotes_cleared_at === undefined) state.data.quicknotes_cleared_at = '';
+    if(state.data.pending_bedtime === undefined) state.data.pending_bedtime = null;
     // Horodatages par session (synchro) : reprise depuis created_at pour l'existant
     (state.data.entries || []).forEach(en => {
       if(en.morning_updated_at === undefined) en.morning_updated_at = en.morning_done ? (en.created_at || '') : '';
@@ -651,7 +652,8 @@ function defaultData(){
     entries: [],
     quicknotes: [],
     deleted_days: [],
-    quicknotes_cleared_at: ''
+    quicknotes_cleared_at: '',
+    pending_bedtime: null
   };
 }
 
@@ -1008,6 +1010,17 @@ const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
 
+/* Coucher memorise (synchro) : on garde la pression la plus recente (par set_at) */
+function mergePendingBedtime(a, b){
+  if(!a && !b) return null;
+  const as = (a && a.set_at) || '', bs = (b && b.set_at) || '';
+  if(as > bs) return JSON.parse(JSON.stringify(a));
+  if(bs > as) return JSON.parse(JSON.stringify(b));
+  // set_at egaux : choix deterministe et symetrique
+  const aj = JSON.stringify(a || null), bj = JSON.stringify(b || null);
+  return JSON.parse(aj >= bj ? aj : bj);
+}
+
 /* Copie le bloc d'une session (flag done + champs + horodatage) de source vers target */
 function copySessionBlock(target, source, session){
   const fields = session === 'morning' ? MORNING_FIELDS : EVENING_FIELDS;
@@ -1088,7 +1101,9 @@ function mergeTrackerData(local, remote){
     quicknotes.push(JSON.parse(JSON.stringify(n)));
   });
   quicknotes.sort((x, y) => (x.created_at || '').localeCompare(y.created_at || ''));
-  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt};
+  // 5. Coucher memorise : pression la plus recente
+  const pending_bedtime = mergePendingBedtime(L.pending_bedtime, R.pending_bedtime);
+  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt, pending_bedtime: pending_bedtime};
 }
 /* ===== SYNC-PURE-END ===== */
 
@@ -1123,13 +1138,8 @@ function startEntry(editId, session, forDate){
   // encore validee et que le champ est vide. Valeur perimee = ignoree puis nettoyee.
   if(state.entrySession === 'morning'){
     const pb = loadPendingBedtime();
-    if(pb){
-      if(pb.date === state.entryDraft.date && !state.entryDraft.morning_done && !state.entryDraft.sleep_bedtime){
-        state.entryDraft.sleep_bedtime = pb.time;
-        clearPendingBedtime();
-      } else if(pb.date < logicalDateStr()){
-        clearPendingBedtime();
-      }
+    if(pb && pb.date === state.entryDraft.date && !state.entryDraft.morning_done && !state.entryDraft.sleep_bedtime){
+      state.entryDraft.sleep_bedtime = pb.time;
     }
   }
   let steps = state.entrySession === 'morning' ? MORNING_STEPS : [...EVENING_STEPS];
@@ -4238,7 +4248,8 @@ function exportJSON(){
     entries: state.data.entries,
     deleted_days: state.data.deleted_days || [],
     quicknotes: state.data.quicknotes || [],
-    quicknotes_cleared_at: state.data.quicknotes_cleared_at || ''
+    quicknotes_cleared_at: state.data.quicknotes_cleared_at || '',
+    pending_bedtime: state.data.pending_bedtime || null
   };
   const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type:'application/json'});
   download(blob, `tracker-export-${todayStr()}.json`);
@@ -4361,6 +4372,7 @@ async function importJSON(file){
     if(Array.isArray(obj.deleted_days)) state.data.deleted_days = obj.deleted_days;
     if(Array.isArray(obj.quicknotes)) state.data.quicknotes = obj.quicknotes;
     if(typeof obj.quicknotes_cleared_at === 'string') state.data.quicknotes_cleared_at = obj.quicknotes_cleared_at;
+    state.data.pending_bedtime = obj.pending_bedtime || null;
     if(obj.settings) state.data.settings = obj.settings;
     await saveData();
     toast('Import réussi.', 'success');
@@ -4905,7 +4917,6 @@ function toast(msg, type){
    que les rappels et l'archive). Le bouton au coucher note l'heure du
    telephone + 5 min ; la session du matin suivante la pre-remplit.
    ============================================================ */
-const PENDING_BEDTIME_KEY = 'tracker_pending_bedtime_v1';
 
 /* PBED-PURE-BEGIN (logique pure, extractible pour les tests) */
 // Heure courante + 5 min, formatee HH:MM (24h). dateObj injectable pour les tests.
@@ -4923,24 +4934,23 @@ function pendingBedtimeTargetDate(logicalStr){
 }
 /* PBED-PURE-END */
 
-function loadPendingBedtime(){
-  try{ return JSON.parse(localStorage.getItem(PENDING_BEDTIME_KEY)) || null; }
-  catch(e){ return null; }
-}
-function setPendingBedtime(){
-  const time = pendingBedtimeTime();
-  const date = pendingBedtimeTargetDate(logicalDateStr());
-  localStorage.setItem(PENDING_BEDTIME_KEY, JSON.stringify({date, time}));
-  return time;
-}
-function clearPendingBedtime(){
-  localStorage.removeItem(PENDING_BEDTIME_KEY);
+// Coucher memorise : stocke dans state.data (donc synchronise dans le Gist),
+// partage entre appareils. Pas de cle locale.
+function loadPendingBedtime(){ return state.data.pending_bedtime || null; }
+// Encore a consommer ? (session matin du jour vise pas encore remplie)
+function pendingBedtimeActive(pb){
+  if(!pb || !pb.date || pb.date < logicalDateStr()) return false;
+  const e = (state.data.entries || []).find(x => x.date === pb.date);
+  return !(e && (e.morning_done || e.sleep_bedtime));
 }
 window.recordBedtime = async function(){
-  const time = setPendingBedtime();
+  const time = pendingBedtimeTime();
+  const date = pendingBedtimeTargetDate(logicalDateStr());
+  state.data.pending_bedtime = {date, time, set_at: new Date().toISOString()};
+  await saveData();
   closeModal();
   renderHome();
-  toast('Coucher noté à ' + time.replace(':','h') + ', pré-rempli demain matin.', 'success');
+  toast('Coucher noté à ' + time.replace(':','h') + ', pré-rempli au prochain réveil.', 'success');
 };
 
 /* ============================================================
@@ -4957,13 +4967,15 @@ function openQuicknoteModal(){
       '</div>';
   }
   const pb = loadPendingBedtime();
-  const pbLine = pb ? `<div style="font-size:12px;color:var(--text-faint);margin-top:8px;text-align:center">Coucher mémorisé : ${escapeHtml(pb.time.replace(':','h'))} (pré-rempli au prochain réveil)</div>` : '';
+  const pbLine = pendingBedtimeActive(pb) ? `<div style="font-size:12px;color:var(--text-faint);margin-top:8px;text-align:center">Coucher mémorisé : ${escapeHtml(pb.time.replace(':','h'))} (pré-rempli au prochain réveil)</div>` : '';
   const html = `
     <h3>Note rapide</h3>
     ${listHtml}
     <textarea id="qn-input" placeholder="Ce que tu veux retenir pour ce soir..." style="min-height:100px"></textarea>
-    <button class="btn btn-secondary" onclick="recordBedtime()" style="width:100%;margin-top:12px">🌙 J'ai retenu l'heure du coucher</button>
-    ${pbLine}
+    <div style="margin:12px 0 28px">
+      <button class="btn btn-secondary" onclick="recordBedtime()" style="width:100%">🌙 Enregistrer l'heure du Coucher</button>
+      ${pbLine}
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
       <button class="btn btn-primary" onclick="saveQuicknote()">Ajouter</button>
@@ -5009,8 +5021,8 @@ function syncEnabled(){ return !!syncConfig().token; }
 /* Donnees synchronisees : entrees + suppressions + quicknotes. Les settings restent locaux. */
 function syncPayloadFromData(d){
   return mergeTrackerData(
-    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || ''},
-    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: ''}
+    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || '', pending_bedtime: d.pending_bedtime || null},
+    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: '', pending_bedtime: null}
   );
 }
 
@@ -5117,6 +5129,7 @@ async function syncNow(manual){
       state.data.deleted_days = merged.deleted_days;
       state.data.quicknotes = merged.quicknotes;
       state.data.quicknotes_cleared_at = merged.quicknotes_cleared_at;
+      state.data.pending_bedtime = merged.pending_bedtime || null;
       _suppressSyncSchedule = true;
       try{ saveData(); } finally { _suppressSyncSchedule = false; }
       refreshAfterSync();
