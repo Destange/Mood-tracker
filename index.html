@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.18.0';
+const VERSION = '1.19.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -595,6 +595,10 @@ function loadData(){
       if(en.morning_updated_at === undefined) en.morning_updated_at = en.morning_done ? (en.created_at || '') : '';
       if(en.evening_updated_at === undefined) en.evening_updated_at = en.evening_done ? (en.created_at || '') : '';
     });
+
+    // v1.19.0 : resonance retiree definitivement, purge du champ dans l'historique
+    let _resoPurged = false;
+    (state.data.entries || []).forEach(en => { if('resonance' in en){ delete en.resonance; _resoPurged = true; } });
     if(state.data.settings.notif_enabled === undefined) state.data.settings.notif_enabled = false;
     if(!state.data.settings.skin) state.data.settings.skin = 'minuit';
     if(!state.data.settings.history_view) state.data.settings.history_view = 'list';
@@ -609,7 +613,7 @@ function loadData(){
         _renamed = true;
       }
     });
-    if(_renamed) saveData();
+    if(_renamed || _resoPurged) saveData();
   }catch(e){
     console.error('Corrupted data, resetting', e);
     // Garder la donnee brute corrompue pour une eventuelle recuperation manuelle
@@ -688,14 +692,13 @@ const FIELD_DEFS = {
   anxiety: {type:'integer-0-10', label:"Anxiété du jour, bilan (0=aucune, 10=très intense)"},
   brain_fog: {type:'integer-0-10', label:"Brouillard mental, bilan journée (0=clair, 10=très embrumé)"},
   blunting: {type:'integer--5-5', label:"Attachement aux proches (−5=aucun lien ressenti, 0=lien habituel, +5=élans inhabituellement forts)"},
-  resonance: {type:'integer--5-5', label:"Résonance émotionnelle (−5=éteinte, 0=présente et vivable, +5=envahissante)"},
-  libido: {type:'enum', values:['absente','diminuee','normale'], label:"Libido, par rapport à la normale personnelle"},
+  libido: {type:'enum', values:['absente','diminuee','normale','exacerbee'], label:"Libido, par rapport à la normale personnelle"},
   mood_evening: {type:'integer-0-10', label:"Humeur du jour (0=très basse, 10=très haute). Avant v1.9.0 : appréciation globale de la journée"},
   suicidal: {type:'enum', values:['aucune','fugaces','presentes','intenses'], label:"Idéations suicidaires"},
   suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
   rgo: {type:'boolean', label:"RGO présent"},
   rgo_intensity: {type:'integer-0-10', label:"Intensité du RGO si présent"},
-  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite','tristesse_a_vif'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
+  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','disperse','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite','tristesse_a_vif'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
   side_effects_other: {type:'text', label:"Précision de l'ancien tag 'autre' (héritage)"},
   positive_feelings: {type:'array-enum', label:"Ressentis positifs de la journée"},
   cafes_count: {type:'integer-0+', label:"Nombre de cafés dans la journée"},
@@ -737,6 +740,7 @@ const POSITIVE_FEELING_LABELS = {
   motive:          'Motivé',
   positif:         'Positif',
   gratitude:       'Reconnaissant',
+  repu:            'Repu',
   serenite:        'Serein',
   utile:           'Utile',
   vivant:          'Vivant',
@@ -753,6 +757,7 @@ const SIDE_EFFECT_LABELS = {
   cordes_vocales: 'Cordes vocales altérées',
   courbatures: 'Courbatures',
   desespoir_profond: 'Désespoir Profond',
+  disperse: 'Dispersé',
   tristesse_a_vif: 'Tristesse à vif',
   diarrhee: 'Diarrhée',
   eruption_cutanee: 'Éruption cutanée',
@@ -785,13 +790,13 @@ const SKINS = {
 };
 
 const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','dreams','weight','note_morning'];
-const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','resonance','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
+const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
 const STEP_LABELS = {
   sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
   dreams:'Rêves & cauchemars', mood_morning:'Humeur au réveil',
   weight:'Poids', note_morning:'Note du matin',
   meds:'Médicaments', cafes_alcohol:'Cafés & alcool', energy:'Énergie globale', anxiety:'Anxiété', brain_fog:'Brouillard mental (journée)',
-  blunting:'Attachement aux proches', resonance:'Résonance émotionnelle', libido:'Libido', mood_evening:'Humeur du jour', suicidal:'Pensées suicidaires',
+  blunting:'Attachement aux proches', libido:'Libido', mood_evening:'Humeur du jour', suicidal:'Pensées suicidaires',
   rgo:'Reflux (RGO)', side_effects:'Ressentis négatifs', positive_feelings:'Ressentis positifs ✨',
   activities:'Activités du jour', physical_activity:'Activité physique', social_media:'Réseaux sociaux', notable_event:'Événement marquant', note:'Note libre'
 };
@@ -997,7 +1002,7 @@ const MORNING_STEPS = [
 ];
 /* Soir, en 4 blocs : corps et consommations, etats internes, comportements, synthese */
 const EVENING_STEPS = [
-  'meds', 'cafes_alcohol', 'rgo', 'energy', 'brain_fog', 'anxiety', 'blunting', 'resonance', 'libido', 'suicidal', 'activities', 'physical_activity', 'social_media', 'side_effects', 'positive_feelings', 'notable_event', 'mood_evening', 'note', 'recap'
+  'meds', 'cafes_alcohol', 'rgo', 'energy', 'brain_fog', 'anxiety', 'blunting', 'libido', 'suicidal', 'activities', 'physical_activity', 'social_media', 'side_effects', 'positive_feelings', 'notable_event', 'mood_evening', 'note', 'recap'
 ];
 /* Saisie minimale du soir : l'essentiel, le reste reste vide (null) */
 const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 'note', 'recap'];
@@ -1006,7 +1011,7 @@ const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 
 
 /* Listes officielles des champs par session (source unique : blankEntry) */
 const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
-const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','resonance','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
 
@@ -1183,7 +1188,6 @@ function blankEntry(date){
     anxiety: null,
     brain_fog: null,
     blunting: null,
-    resonance: null,
     libido: null,
     mood_evening: null,
     suicidal: 'aucune',
@@ -1197,7 +1201,7 @@ function blankEntry(date){
     alcohol_units: 0,
     gaviscon_doses: 0,
     pantoprazole_doses: 0,
-    ltyrosine_mg: 1000,
+    ltyrosine_mg: null, // saisie retiree en v1.19.0, historique conserve
     activities: [],
     physical_activity: 0,
     social_media_min: 0,
@@ -1214,7 +1218,7 @@ function migrateEntry(e){
   for(const [k, v] of Object.entries(blank)){
     if(!(k in e)) e[k] = v;
   }
-  if(e.ltyrosine_mg===undefined) e.ltyrosine_mg=1000;
+  if(e.ltyrosine_mg===undefined) e.ltyrosine_mg=null;
 }
 
 function autoDetectSession(entry){
@@ -1241,7 +1245,7 @@ window.applyEntryDate = function(){
 };
 /* Champs non poses en saisie minimale : vides (null), pas de faux zeros.
    Exception voulue : la mianserine reste a la dose par defaut (routine quotidienne). */
-const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','resonance','libido','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
+const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','libido','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
 function startMinimalEvening(){
   MINIMAL_NULL_FIELDS.forEach(f => { state.entryDraft[f] = null; });
   const hasQn = state.entrySteps[0] === 'quicknotes_review';
@@ -1415,39 +1419,13 @@ function buildStep(step){
     return w;
   }
 
-  if(step === 'resonance'){
-    const w = stepWrap(idx, "Ta résonance émotionnelle ?", "À quel point les émotions te traversent : les tiennes, celles des autres. −5 = éteinte · 0 = présente et vivable · +5 = envahissante.");
-    const sw = document.createElement('div');
-    sw.className = 'slider-wrap';
-    const val = d.resonance;
-    const hasVal = (val !== null && val !== undefined);
-    const dispVal = !hasVal ? '—' : (val > 0 ? '+'+val : String(val));
-    sw.innerHTML = `
-      <div class="slider-value" id="sv-resonance">${dispVal}</div>
-      <input type="range" min="-5" max="5" step="1" value="${hasVal ? val : 0}" id="sl-resonance">
-      <div class="slider-labels"><span>−5</span><span>0</span><span>+5</span></div>`;
-    w.appendChild(sw);
-    if(!hasVal) document.getElementById('entry-next').disabled = true;
-    setTimeout(()=>{
-      const sl = document.getElementById('sl-resonance');
-      const sv = document.getElementById('sv-resonance');
-      const commit = () => {
-        d.resonance = parseInt(sl.value);
-        sv.textContent = d.resonance > 0 ? '+'+d.resonance : String(d.resonance);
-        document.getElementById('entry-next').disabled = false;
-      };
-      sl.addEventListener('input', commit);
-      sl.addEventListener('click', commit);
-    },0);
-    return w;
-  }
-
   if(step === 'libido'){
     const w = stepWrap(idx, "Libido aujourd'hui ?", "Par rapport à ce qui est normal pour toi.");
     const opts = [
       {v:'absente',  t:"Absente",  s:"Aucun désir."},
       {v:'diminuee', t:"Diminuée", s:"Présente mais en retrait."},
-      {v:'normale',  t:"Normale",  s:"Comme d'habitude pour toi."}
+      {v:'normale',  t:"Normale",  s:"Comme d'habitude pour toi."},
+      {v:'exacerbee',t:"Exacerbée", s:"Plus forte que d'habitude."}
     ];
     const cards = document.createElement('div');
     cards.className = 'radio-cards';
@@ -1643,7 +1621,7 @@ function buildStep(step){
     const w = stepWrap(idx, "Ressentis négatifs de la journée", "");
     const SIDE_EFFECT_GROUPS = [
       {label: 'Corps', keys: ['bouche_seche','constipation','courbatures','diarrhee','fatigue_generale','grande_faim','grignotages','mal_tete','nausees','pas_appetit','tremblements','vertiges']},
-      {label: 'Émotions', keys: ['deconnecte','desespoir_profond','irritabilite','pleurs','tristesse_a_vif']}
+      {label: 'Émotions', keys: ['deconnecte','desespoir_profond','disperse','irritabilite','pleurs','tristesse_a_vif']}
     ];
     const predefinedKeys = Object.keys(SIDE_EFFECT_LABELS);
     const groupWraps = [];
@@ -1940,12 +1918,6 @@ if(step === 'positive_feelings'){
           <input type="number" id="ca-panto" value="${d.pantoprazole_doses||0}" min="0" max="4">
           <button id="ca-plus-p">+</button>
         </div>
-      </div>
-      <div>
-        <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">L-Tyrosine</div>
-        <div style="display:flex;gap:8px;justify-content:center">
-          ${[0,500,1000].map(v=>'<button id="ca-ltyr-'+v+'" class="btn'+((d.ltyrosine_mg===v)?' btn-primary':' btn-secondary')+'" style="min-width:70px">'+v+' mg</button>').join('')}
-        </div>
       </div>`;
     w.appendChild(grid);
     setTimeout(()=>{
@@ -1965,15 +1937,6 @@ if(step === 'positive_feelings'){
       document.getElementById('ca-minus-p').onclick = ()=>{ if(d.pantoprazole_doses>0){d.pantoprazole_doses--; pi.value=d.pantoprazole_doses;} };
       document.getElementById('ca-plus-p').onclick  = ()=>{ d.pantoprazole_doses=(d.pantoprazole_doses||0)+1; pi.value=d.pantoprazole_doses; };
       pi.oninput = e=>{ d.pantoprazole_doses = Math.max(0,parseInt(e.target.value)||0); };
-      [0,500,1000].forEach(v=>{
-        document.getElementById('ca-ltyr-'+v).onclick = ()=>{
-          d.ltyrosine_mg = v;
-          [0,500,1000].forEach(vv=>{
-            const b = document.getElementById('ca-ltyr-'+vv);
-            b.className = 'btn '+(vv===v ? 'btn-primary' : 'btn-secondary');
-          });
-        };
-      });
     },0);
     return w;
   }
@@ -2133,7 +2096,6 @@ if(step === 'positive_feelings'){
       if(typeof d.anxiety === 'number') rows.push(['Anxiété', `${d.anxiety}/10`]);
       if(typeof d.brain_fog === 'number') rows.push(['Brouillard (journée)', `${d.brain_fog}/10`]);
       if(typeof d.blunting === 'number') rows.push(['Attachement aux proches', `${d.blunting > 0 ? '+' : ''}${d.blunting}`]);
-      if(typeof d.resonance === 'number') rows.push(['Résonance émotionnelle', `${d.resonance > 0 ? '+' : ''}${d.resonance}`]);
       if(d.libido) rows.push(['Libido', libidoLabel(d.libido)]);
       if(typeof d.mood_evening === 'number') rows.push(['Humeur', `${d.mood_evening}/10`]);
       rows.push(['Idéations', suicidalLabel(d.suicidal)]);
@@ -2182,7 +2144,7 @@ function suicidalLabel(v){
 }
 
 function libidoLabel(v){
-  return {absente:'Absente', diminuee:'Diminuée', normale:'Normale'}[v] || v;
+  return {absente:'Absente', diminuee:'Diminuée', normale:'Normale', exacerbee:'Exacerbée'}[v] || v;
 }
 
 function formatDate(s){
@@ -2374,7 +2336,6 @@ function formatStepValue(e, step){
     case 'anxiety': return e.anxiety != null ? `${e.anxiety}/10` : dash;
     case 'brain_fog': return e.brain_fog != null ? `${e.brain_fog}/10` : dash;
     case 'blunting': return e.blunting != null ? `${e.blunting>=0?'+':''}${e.blunting}` : dash;
-    case 'resonance': return e.resonance != null ? `${e.resonance>=0?'+':''}${e.resonance}` : dash;
     case 'libido': return e.libido ? libidoLabel(e.libido) : dash;
     case 'mood_evening': return e.mood_evening != null ? `${e.mood_evening}/10` : dash;
     case 'suicidal': return suicidalLabel(e.suicidal) || dash;
@@ -2944,7 +2905,7 @@ function tendMianserineEvents(entries){
 // Reformulations de questions/échelles (audit décision 1 : annoter les changements de formulation)
 const TEND_SCALE_EVENTS = [
   {date: '2026-06-11', label: 'Reformulation humeur'},
-  {date: '2026-06-12', label: 'Attachement / Résonance'}
+  {date: '2026-06-12', label: 'Attachement'}
 ];
 
 // Dates des événements marquants cochés dans les saisies
@@ -2956,7 +2917,6 @@ function tendNotableDates(entries){
 function tendGetEnergy(e){ return (e.evening_done && typeof e.energy === 'number') ? e.energy : null; }
 function tendGetFog(e){ return (e.evening_done && typeof e.brain_fog === 'number') ? e.brain_fog : null; }
 function tendGetBlunting(e){ return (e.evening_done && typeof e.blunting === 'number') ? e.blunting : null; }
-function tendGetResonance(e){ return (e.evening_done && typeof e.resonance === 'number') ? e.resonance : null; }
 function tendGetSleepHours(e){ const m = bilanGetSleepMin(e); return m === null ? null : m / 60; }
 /* ===== TEND-PURE-END ===== */
 
@@ -2968,8 +2928,7 @@ const TEND_METRICS = [
   {key:'energy',  label:'Énergie',                   color:'#9b6dff', getter: tendGetEnergy,    yMin:0,  yMax:10},
   {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:0, yMax:12},
   {key:'fog',     label:'Brouillard',                color:'#7a92aa', getter: tendGetFog,       yMin:0,  yMax:10},
-  {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5},
-  {key:'reso',    label:'Résonance émot. (-5/+5)',   color:'#c98bdb', getter: tendGetResonance, yMin:-5, yMax:5}
+  {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5}
 ];
 
 // Plugin inline : lignes verticales des événements de traitement (ambre, libellés dans la légende
@@ -4257,7 +4216,7 @@ function exportJSON(){
 }
 
 function exportCSV(){
-  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','resonance','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
   const header = cols.join(';');
   const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
     cols.map(c => csvEscape(e[c])).join(';')
@@ -4298,7 +4257,6 @@ function exportMarkdown(){
     md += `| Énergie journée | ${avg('energy')} / 10 |\n`;
     md += `| Anxiété | ${avg('anxiety')} / 10 |\n`;
     md += `| Attachement aux proches | ${avg('blunting')} |\n`;
-    md += `| Résonance émotionnelle | ${avg('resonance')} |\n`;
     md += `| Activité physique | ${avg('physical_activity')} / 3 |\n`;
     md += `| Cafés (moy.) | ${avg('cafes_count')} |\n`;
   }
@@ -4320,7 +4278,7 @@ function exportMarkdown(){
       md += `**Soir**\n`;
       { const doses = []; if(e.paroxetine_mg) doses.push(`paroxétine ${e.paroxetine_mg}mg`); if(typeof e.mianserine_mg==='number') doses.push(`miansérine ${e.mianserine_mg}mg`); if(typeof e.oxazepam_mg==='number') doses.push(`oxazépam ${e.oxazepam_mg}mg`); if(doses.length) md += `- Doses : ${doses.join(', ')}\n`; }
       { const conso = []; if(typeof e.cafes_count==='number') conso.push(`Cafés ${e.cafes_count}`); if(typeof e.alcohol_units==='number') conso.push(`Alcool ${e.alcohol_units}`); if(e.gaviscon_doses) conso.push('Gaviscon '+e.gaviscon_doses); if(e.pantoprazole_doses) conso.push('Panto. '+e.pantoprazole_doses); if(e.ltyrosine_mg) conso.push('L-Tyr '+e.ltyrosine_mg+'mg'); if(conso.length) md += `- ${conso.join(' · ')}\n`; }
-      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Attachement ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(typeof e.resonance==='number') st.push(`Résonance ${e.resonance > 0 ? '+' : ''}${e.resonance}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
+      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Attachement ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
       if(typeof e.mood_evening==='number') md += `- Humeur : ${e.mood_evening}/10\n`;
       const phLabels = {0:'Sédentaire',1:'Légèrement actif',2:'Actif',3:'Cardio'};
       if(e.physical_activity !== null && e.physical_activity !== undefined) md += `- Activité physique : ${phLabels[e.physical_activity]||'—'}\n`;
@@ -4535,21 +4493,15 @@ function exportPDF(){
       dh += '<tr><td>Anxiété</td><td>'+scoreSpan(e.anxiety,false)+'/10</td></tr>';
       dh += '<tr><td>Énergie</td><td>'+scoreSpan(e.energy,true)+'/10</td></tr>';
       dh += '<tr><td>Brouillard</td><td>'+scoreSpan(e.brain_fog,false)+'/10</td></tr>';
-      // Échelles signées /5 : attachement (champ blunting) et résonance
+      // Échelle signée /5 : attachement (champ blunting)
       if(e.blunting !== null && e.blunting !== undefined){
         const bl = e.blunting;
         const blStr = (bl>0?'+':'')+bl+'/5';
         const blColor = bl < -2 ? '#c0392b' : bl > 2 ? '#7b2fbe' : bl === 0 ? '#888' : '#b36b00';
         dh += '<tr><td>Attachement</td><td><span style="font-weight:600;color:'+blColor+'">'+blStr+'</span></td></tr>';
       }
-      if(e.resonance !== null && e.resonance !== undefined){
-        const rs = e.resonance;
-        const rsStr = (rs>0?'+':'')+rs+'/5';
-        const rsColor = rs < -2 ? '#c0392b' : rs > 2 ? '#7b2fbe' : rs === 0 ? '#888' : '#b36b00';
-        dh += '<tr><td>Résonance émot.</td><td><span style="font-weight:600;color:'+rsColor+'">'+rsStr+'</span></td></tr>';
-      }
       if(e.libido){
-        dh += '<tr><td>Libido</td><td>'+({absente:'Absente',diminuee:'Diminuée',normale:'Normale'}[e.libido]||e.libido)+'</td></tr>';
+        dh += '<tr><td>Libido</td><td>'+({absente:'Absente',diminuee:'Diminuée',normale:'Normale',exacerbee:'Exacerbée'}[e.libido]||e.libido)+'</td></tr>';
       }
       // Activité physique : label
       if(e.physical_activity !== undefined && e.physical_activity !== null){
@@ -4695,7 +4647,6 @@ function exportPDF(){
     +'<tr><td>Énergie journée</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'energy'),true)+'">'+avg(entries.filter(e=>e.evening_done),'energy')+' /10</td></tr>'
     +'<tr><td>Brouillard mental</td><td class="num c-'+colorClass(avg(entries.filter(e=>e.evening_done),'brain_fog'),false)+'">'+avg(entries.filter(e=>e.evening_done),'brain_fog')+' /10</td></tr>'
     +'<tr><td>Attachement aux proches</td><td class="num">'+avgAll('blunting')+' /5</td></tr>'
-    +'<tr><td>Résonance émot.</td><td class="num">'+avgAll('resonance')+' /5</td></tr>'
     +'</table></div>'
     +'</div>'
     +'<h2>Résumés hebdomadaires</h2>'
