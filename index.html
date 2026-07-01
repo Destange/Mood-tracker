@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.19.0';
+const VERSION = '1.20.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -2918,6 +2918,7 @@ function tendGetEnergy(e){ return (e.evening_done && typeof e.energy === 'number
 function tendGetFog(e){ return (e.evening_done && typeof e.brain_fog === 'number') ? e.brain_fog : null; }
 function tendGetBlunting(e){ return (e.evening_done && typeof e.blunting === 'number') ? e.blunting : null; }
 function tendGetSleepHours(e){ const m = bilanGetSleepMin(e); return m === null ? null : m / 60; }
+function tendGetWeight(e){ return (e.morning_done && typeof e.weight_kg === 'number') ? e.weight_kg : null; }
 /* ===== TEND-PURE-END ===== */
 
 /* ===== Onglet Tendances : rendu (petits multiples) ===== */
@@ -2926,9 +2927,10 @@ const TEND_METRICS = [
   {key:'mood',    label:'Humeur',                    color:'#4ecdc4', getter: bilanGetMood,     yMin:0,  yMax:10},
   {key:'anxiety', label:'Anxiété',                   color:'#e74c3c', getter: bilanGetAnxiety,  yMin:0,  yMax:10},
   {key:'energy',  label:'Énergie',                   color:'#9b6dff', getter: tendGetEnergy,    yMin:0,  yMax:10},
-  {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:0, yMax:12},
+  {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:3, yMax:13},
   {key:'fog',     label:'Brouillard',                color:'#7a92aa', getter: tendGetFog,       yMin:0,  yMax:10},
-  {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5}
+  {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5},
+  {key:'weight',  label:'Poids (kg)',                color:'#4a9eff', getter: tendGetWeight,    yMin:60, yMax:85}
 ];
 
 // Plugin inline : lignes verticales des événements de traitement (ambre, libellés dans la légende
@@ -2988,7 +2990,7 @@ function renderTendances(c, entries){
   const labels = dates.map(d => d.slice(8,10) + '/' + d.slice(5,7));
 
   const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
-  const events = tendTaperEvents(taper).concat(tendMianserineEvents(entries)).concat(TEND_SCALE_EVENTS)
+  const events = tendTaperEvents(taper)
     .filter(ev => ev.date >= from && ev.date <= today);
   const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
 
@@ -3044,7 +3046,7 @@ function renderTendances(c, entries){
             callbacks: {
               label(tc){
                 if(tc.parsed.y === null) return null;
-                const v = m.key === 'sleep' ? tc.parsed.y.toFixed(1) + ' h' : tc.parsed.y.toFixed(1);
+                const v = m.key === 'sleep' ? tc.parsed.y.toFixed(1) + ' h' : m.key === 'weight' ? tc.parsed.y.toFixed(1) + ' kg' : tc.parsed.y.toFixed(1);
                 return (tc.datasetIndex === 0 ? 'moy. 7 j : ' : 'jour : ') + v;
               }
             }
