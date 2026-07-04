@@ -548,7 +548,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.20.0';
+const VERSION = '1.21.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -562,7 +562,7 @@ const state = {
   editingEntryId: null,
   singleStepEdit: false,
   statsTab: 'bilan',
-  tendPeriod: 90, // Tendances : 30/90/180 jours, 0 = tout
+  tendPeriod: 30, // Tendances : 30/90/180 jours, 0 = tout
   exploreView: 'days', // Explorer : days/heatmap/weekly/activities_impact/corr_short
   feelPeriod: 30, // Ressentis : 30/90 jours, 0 = tout
   heatmapOrder: 'desc', // Heatmap : 'desc' = mois en cours d'abord, 'asc' = chronologique
@@ -698,7 +698,7 @@ const FIELD_DEFS = {
   suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
   rgo: {type:'boolean', label:"RGO présent"},
   rgo_intensity: {type:'integer-0-10', label:"Intensité du RGO si présent"},
-  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','disperse','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite','tristesse_a_vif'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
+  side_effects: {type:'array-enum', values:['bouche_seche','brain_zaps','brouillard_mental','cauchemars','constipation','cordes_vocales','courbatures','desespoir_profond','disperse','diarrhee','fatigue_generale','fievre','frissons','grande_faim','grignotages','mal_tete','nausees','pas_appetit','pleurs','deconnecte','tremblements','vertiges','irritabilite','tristesse_a_vif','transpiration_nocturne','sommeil_degrade'], label:"Ressentis négatifs de la journée (toute autre chaîne est un tag personnalisé)"},
   side_effects_other: {type:'text', label:"Précision de l'ancien tag 'autre' (héritage)"},
   positive_feelings: {type:'array-enum', label:"Ressentis positifs de la journée"},
   cafes_count: {type:'integer-0+', label:"Nombre de cafés dans la journée"},
@@ -774,7 +774,9 @@ const SIDE_EFFECT_LABELS = {
   somnolence: 'Somnolence matinale',
   tremblements: 'Tremblements',
   vertiges: 'Vertiges',
-  irritabilite: 'Irritabilité'
+  irritabilite: 'Irritabilité',
+  transpiration_nocturne: 'Transpiration nocturne',
+  sommeil_degrade: 'Sommeil dégradé'
 };
 
 // Tags retirés de la saisie mais conservés ici pour l'affichage des anciennes entrées
@@ -789,7 +791,7 @@ const SKINS = {
   acier:     { name:'Acier',      desc:'Bleu marine · Azur',      bg:'#09101e',bg2:'#0d1628',bg3:'#121e36',bg4:'#182842',border:'#1e3355',text:'#dceeff',dim:'#7ba8d0',faint:'#4d7a9a',accent:'#4a9eff',accentDim:'#2a60b0',amber:'#f5c842',amberDim:'#a08a15' }
 };
 
-const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','dreams','weight','note_morning'];
+const MORNING_EDIT_STEPS = ['sleep_schedule','sleep_quality','wake_count','dreams','weight','note_morning'];
 const EVENING_EDIT_STEPS = ['meds','cafes_alcohol','rgo','energy','brain_fog','anxiety','blunting','libido','suicidal','activities','physical_activity','social_media','side_effects','positive_feelings','notable_event','mood_evening','note'];
 const STEP_LABELS = {
   sleep_schedule:'Horaires de sommeil', sleep_quality:'Qualité du sommeil', wake_count:'Réveils nocturnes',
@@ -998,7 +1000,7 @@ function logicalDateStr(){
    ============================================================ */
 
 const MORNING_STEPS = [
-  'sleep_schedule', 'sleep_quality', 'dreams', 'weight', 'note_morning', 'recap'
+  'sleep_schedule', 'sleep_quality', 'wake_count', 'dreams', 'weight', 'note_morning', 'recap'
 ];
 /* Soir, en 4 blocs : corps et consommations, etats internes, comportements, synthese */
 const EVENING_STEPS = [
@@ -1157,6 +1159,24 @@ function startEntry(editId, session, forDate){
   renderEntryStep();
 }
 
+// Plan de sevrage miansérine (psychiatre). Source unique : pilote la dose par défaut
+// du soir ET les repères ambre des Tendances. Modifier ici si le plan change.
+const MIANSERINE_TAPER = [
+  {from: '2026-07-03', mg: 30},
+  {from: '2026-07-10', mg: 15},
+  {from: '2026-07-17', mg: 0}
+];
+// Dose planifiée pour une date : dernier palier dont 'from' <= date, sinon la valeur par défaut de l'appareil.
+function mianserineDoseForDate(date, taper, fallback){
+  let best = null;
+  (taper || []).forEach(t => {
+    if(t && t.from && typeof t.mg === 'number' && t.from <= date){
+      if(!best || t.from > best.from) best = t;
+    }
+  });
+  return best ? best.mg : fallback;
+}
+
 function blankEntry(date){
   return {
     id: 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
@@ -1171,7 +1191,7 @@ function blankEntry(date){
     sleep_waketime: '',
     sleep_duration_min: 0,
     sleep_quality: null, // reponse obligatoire en saisie, pas de valeur fabriquee
-    wake_count: null, // question retiree en v1.16.0, historique conserve
+    wake_count: 0, // compteur, vraie valeur (question remise en v1.21.0)
     dream_quality: null,
     nightmare: false,
     nightmare_note: '',
@@ -1182,7 +1202,7 @@ function blankEntry(date){
     weight_kg: null,
     // Session soir
     paroxetine_mg: 0, // traitement termine : plus de saisie, champ conserve pour l'historique
-    mianserine_mg: state.data.settings.defaults.mianserine_mg,
+    mianserine_mg: mianserineDoseForDate(date, MIANSERINE_TAPER, state.data.settings.defaults.mianserine_mg),
     oxazepam_mg: 0,
     energy: null,
     anxiety: null,
@@ -1446,6 +1466,24 @@ function buildStep(step){
     return w;
   }
 
+  if(step === 'wake_count'){
+    const w = stepWrap(idx, "Combien de réveils nocturnes ?", "Y compris les très brefs si tu t'en souviens.");
+    const ni = document.createElement('div');
+    ni.className = 'num-input';
+    ni.innerHTML = `
+      <button id="wc-minus">−</button>
+      <input type="number" id="wc-val" value="${d.wake_count ?? 0}" min="0" max="20">
+      <button id="wc-plus">+</button>`;
+    w.appendChild(ni);
+    setTimeout(()=>{
+      const inp = document.getElementById('wc-val');
+      document.getElementById('wc-minus').onclick = ()=>{ const c = (d.wake_count ?? 0); if(c > 0){ d.wake_count = c - 1; inp.value = d.wake_count; } };
+      document.getElementById('wc-plus').onclick = ()=>{ d.wake_count = (d.wake_count ?? 0) + 1; inp.value = d.wake_count; };
+      inp.oninput = e=>{ d.wake_count = Math.max(0, parseInt(e.target.value)||0); };
+    },0);
+    return w;
+  }
+
   if(step === 'dreams'){
     const w = stepWrap(idx, "Qualité des rêves cette nuit ?", "");
     const dreamOpts = [
@@ -1620,7 +1658,7 @@ function buildStep(step){
   if(step === 'side_effects'){
     const w = stepWrap(idx, "Ressentis négatifs de la journée", "");
     const SIDE_EFFECT_GROUPS = [
-      {label: 'Corps', keys: ['bouche_seche','constipation','courbatures','diarrhee','fatigue_generale','grande_faim','grignotages','mal_tete','nausees','pas_appetit','tremblements','vertiges']},
+      {label: 'Corps', keys: ['bouche_seche','constipation','courbatures','diarrhee','fatigue_generale','grande_faim','grignotages','mal_tete','nausees','pas_appetit','tremblements','vertiges','transpiration_nocturne','sommeil_degrade']},
       {label: 'Émotions', keys: ['deconnecte','desespoir_profond','disperse','irritabilite','pleurs','tristesse_a_vif']}
     ];
     const predefinedKeys = Object.keys(SIDE_EFFECT_LABELS);
@@ -2887,19 +2925,12 @@ function tendTaperEvents(taper){
   return evts;
 }
 
-// Changements de dose de miansérine détectés dans les saisies (soirs terminés uniquement).
-// La première valeur observée est la référence : seuls les changements suivants deviennent des événements.
-function tendMianserineEvents(entries){
-  const evts = [];
-  let last = null;
-  entries.forEach(e => {
-    if(!e.evening_done || typeof e.mianserine_mg !== 'number') return;
-    if(last !== null && e.mianserine_mg !== last){
-      evts.push({date: e.date, label: 'Mians. ' + e.mianserine_mg + ' mg'});
-    }
-    last = e.mianserine_mg;
-  });
-  return evts;
+// Repères du plan de sevrage miansérine (source unique MIANSERINE_TAPER).
+function tendMianserineTaperEvents(taper){
+  return (taper || []).filter(t => t && t.from).map(t => ({
+    date: t.from,
+    label: t.mg === 0 ? 'Arrêt miansérine' : 'Miansérine ' + t.mg + ' mg'
+  }));
 }
 
 // Reformulations de questions/échelles (audit décision 1 : annoter les changements de formulation)
@@ -2919,6 +2950,7 @@ function tendGetFog(e){ return (e.evening_done && typeof e.brain_fog === 'number
 function tendGetBlunting(e){ return (e.evening_done && typeof e.blunting === 'number') ? e.blunting : null; }
 function tendGetSleepHours(e){ const m = bilanGetSleepMin(e); return m === null ? null : m / 60; }
 function tendGetWeight(e){ return (e.morning_done && typeof e.weight_kg === 'number') ? e.weight_kg : null; }
+function tendGetSleepQuality(e){ return (e.morning_done && typeof e.sleep_quality === 'number') ? e.sleep_quality : null; }
 /* ===== TEND-PURE-END ===== */
 
 /* ===== Onglet Tendances : rendu (petits multiples) ===== */
@@ -2928,9 +2960,10 @@ const TEND_METRICS = [
   {key:'anxiety', label:'Anxiété',                   color:'#e74c3c', getter: bilanGetAnxiety,  yMin:0,  yMax:10},
   {key:'energy',  label:'Énergie',                   color:'#9b6dff', getter: tendGetEnergy,    yMin:0,  yMax:10},
   {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:3, yMax:13},
+  {key:'sleepq',  label:'Sommeil (qualité, 0-10)',   color:'#5dbb63', getter: tendGetSleepQuality, yMin:0, yMax:10},
   {key:'fog',     label:'Brouillard',                color:'#7a92aa', getter: tendGetFog,       yMin:0,  yMax:10},
   {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5},
-  {key:'weight',  label:'Poids (kg)',                color:'#4a9eff', getter: tendGetWeight,    yMin:60, yMax:85}
+  {key:'weight',  label:'Poids (kg)',                color:'#4a9eff', getter: tendGetWeight,    yMin:60, yMax:85, connect:true}
 ];
 
 // Plugin inline : lignes verticales des événements de traitement (ambre, libellés dans la légende
@@ -2991,6 +3024,7 @@ function renderTendances(c, entries){
 
   const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
   const events = tendTaperEvents(taper)
+    .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
     .filter(ev => ev.date >= from && ev.date <= today);
   const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
 
@@ -3017,18 +3051,25 @@ function renderTendances(c, entries){
 
   TEND_METRICS.forEach(m => {
     const raw = tendSeries(entries, m.getter, dates);
-    const ma = tendMovingAvg(raw, 7, 3);
     const ctx = document.getElementById('tend-' + m.key).getContext('2d');
+    // Poids (m.connect) : on relie simplement les points existants (spanGaps), toujours visible
+    // même avec peu de pesées. Les autres : points bruts pâles + moyenne mobile 7 jours.
+    const datasets = m.connect
+      ? [
+          {label: 'valeur', data: raw, borderColor: m.color, backgroundColor: 'transparent',
+           borderWidth: 2, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12, tension: .3, spanGaps: true}
+        ]
+      : [
+          {label: 'moy. 7 j', data: tendMovingAvg(raw, 7, 3), borderColor: m.color, backgroundColor: 'transparent',
+           borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: false},
+          {label: 'brut', data: raw, borderColor: 'transparent', backgroundColor: m.color + '59',
+           showLine: false, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12}
+        ];
     state.charts['tend_' + m.key] = new Chart(ctx, {
       type: 'line',
       data: {
         labels: labels,
-        datasets: [
-          {label: 'moy. 7 j', data: ma, borderColor: m.color, backgroundColor: 'transparent',
-           borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: false},
-          {label: 'brut', data: raw, borderColor: 'transparent', backgroundColor: m.color + '59',
-           showLine: false, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12}
-        ]
+        datasets: datasets
       },
       options: {
         responsive: true,
@@ -3047,6 +3088,7 @@ function renderTendances(c, entries){
               label(tc){
                 if(tc.parsed.y === null) return null;
                 const v = m.key === 'sleep' ? tc.parsed.y.toFixed(1) + ' h' : m.key === 'weight' ? tc.parsed.y.toFixed(1) + ' kg' : tc.parsed.y.toFixed(1);
+                if(m.connect) return v;
                 return (tc.datasetIndex === 0 ? 'moy. 7 j : ' : 'jour : ') + v;
               }
             }
