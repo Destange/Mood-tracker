@@ -342,6 +342,31 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .skin-name{font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px}
 .skin-desc{font-size:12px;color:var(--text-faint);line-height:1.3}
 .skin-check{position:absolute;top:5px;right:6px;color:var(--teal);font-size:14px;font-weight:700;line-height:1}
+
+/* ===== JOURNAL (vue lecture) ===== */
+.journal-topbar{display:flex;align-items:center;gap:8px;margin-bottom:22px}
+.journal-topbar > *{flex:1;display:flex}
+.journal-nav-btn{width:100%;justify-content:center;padding:10px 8px;min-height:44px;border-radius:var(--radius-sm);background:var(--bg-3);color:var(--text-dim);font-size:13px;border:1px solid var(--border);transition:var(--t);text-align:center}
+.journal-nav-btn:hover{background:var(--bg-2);border-color:var(--teal-dim);color:var(--text)}
+.journal-nav-latest{color:var(--teal)}
+.journal-nav-spacer{width:100%}
+.journal-date{font-size:26px;font-weight:700;line-height:1.2;color:var(--text);margin:0 0 18px;letter-spacing:-.01em}
+.journal-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:26px}
+.jchip{display:inline-flex;align-items:baseline;gap:6px;background:var(--bg-2);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:13px}
+.jchip-k{color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.jchip-v{color:var(--text);font-weight:600}
+.jchip-alert{background:rgba(231,76,60,.12);border-color:var(--red-dim)}
+.jchip-alert .jchip-v{color:var(--red)}
+.journal-texts{display:flex;flex-direction:column;gap:22px}
+.journal-section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);font-weight:600;margin-bottom:8px}
+.journal-section-body{font-size:18px;line-height:1.65;color:var(--text);white-space:pre-wrap;word-break:break-word}
+.journal-notable{background:linear-gradient(135deg,rgba(78,205,196,.10),rgba(78,205,196,.03));border:1px solid var(--teal-dim);border-radius:var(--radius);padding:16px 18px}
+.journal-notable .journal-section-title{color:var(--teal)}
+.journal-suicidal{border-left:3px solid var(--red-dim);padding-left:14px}
+.journal-suicidal .journal-section-title{color:var(--text-dim)}
+.journal-empty{color:var(--text-faint);font-size:15px;font-style:italic;padding:8px 0}
+.journal-edit{margin-top:34px;display:flex;justify-content:center}
+.journal-edit-btn{padding:10px 18px;font-size:13px}
 </style>
 </head>
 <body>
@@ -395,6 +420,11 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
         <div class="title">Historique</div>
         <div class="desc">Voir / éditer les jours précédents</div>
       </button>
+      <button class="home-card" id="card-journal">
+        <div class="label">Lecture</div>
+        <div class="title">Journal</div>
+        <div class="desc">Relire tes jours, un par un</div>
+      </button>
       <button class="home-card" id="card-stats">
         <div class="label">Visualisations</div>
         <div class="title">Statistiques</div>
@@ -438,6 +468,12 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
     <div id="edit-day-nav" style="display:flex;justify-content:space-between;gap:10px;margin-bottom:20px"></div>
     <div id="edit-day-content"></div>
+  </div>
+
+  <!-- ============ JOURNAL ============ -->
+  <div class="view" id="view-journal">
+    <div class="journal-topbar" id="journal-topbar"></div>
+    <div id="journal-content"></div>
   </div>
 
   <!-- ============ STATS ============ -->
@@ -548,7 +584,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.21.0';
+const VERSION = '1.22.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -829,6 +865,7 @@ function showView(name){
   if(name === 'home') renderHome();
   if(name === 'history') renderHistoryView();
   if(name === 'stats') renderStats();
+  if(name === 'journal') renderJournal();
   if(name === 'settings') renderSettings();
   document.getElementById('fab-quicknote').style.display = (name === 'home') ? 'flex' : 'none';
 }
@@ -2388,6 +2425,133 @@ function formatStepValue(e, step){
     case 'note': return e.free_note ? `"${e.free_note.slice(0,35)}${e.free_note.length>35?'…':''}"` : dash;
     default: return dash;
   }
+}
+
+/* ============================================================
+   JOURNAL (vue lecture, façon journal intime)
+   ============================================================ */
+
+function journalSortedEntries(){
+  return state.data.entries.slice().sort((a,b) => a.date.localeCompare(b.date));
+}
+
+function openJournal(){
+  const sorted = journalSortedEntries();
+  if(sorted.length === 0){
+    toast("Aucune saisie à relire pour l'instant.", 'info');
+    return;
+  }
+  // Par défaut, on ouvre le jour le plus récent
+  state.journalDate = sorted[sorted.length - 1].date;
+  showView('journal');
+}
+
+function journalFullDate(dateStr){
+  const d = new Date(dateStr);
+  let txt = d.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+  return txt.charAt(0).toUpperCase() + txt.slice(1);
+}
+
+function journalChips(e){
+  const chips = [];
+  const add = (k, v, alert) => chips.push(
+    '<span class="jchip' + (alert ? ' jchip-alert' : '') + '">'
+    + '<span class="jchip-k">' + k + '</span>'
+    + '<span class="jchip-v">' + escapeHtml(v) + '</span></span>');
+
+  if(e.sleep_duration_min){
+    const h = Math.floor(e.sleep_duration_min/60), m = e.sleep_duration_min%60;
+    add('Sommeil', h + 'h' + (m ? String(m).padStart(2,'0') : ''));
+  }
+  if(e.energy != null) add('Énergie', e.energy + '/10');
+  if(e.mood_evening != null) add('Humeur', e.mood_evening + '/10');
+  if(e.anxiety != null) add('Anxiété', e.anxiety + '/10');
+  if(e.physical_activity != null) add('Activité phys.', e.physical_activity + '/3');
+  if(e.libido) add('Libido', libidoLabel(e.libido));
+  const meds = [];
+  if(typeof e.mianserine_mg === 'number' && e.mianserine_mg) meds.push('Mians. ' + e.mianserine_mg + 'mg');
+  if(typeof e.oxazepam_mg === 'number' && e.oxazepam_mg) meds.push('Oxa. ' + e.oxazepam_mg + 'mg');
+  if(meds.length) add('Médicaments', meds.join(' · '));
+  if(e.suicidal && e.suicidal !== 'aucune') add('Pensées suic.', suicidalLabel(e.suicidal), true);
+
+  if(chips.length === 0) return '';
+  return '<div class="journal-chips">' + chips.join('') + '</div>';
+}
+
+function journalSection(title, body, cls){
+  return '<div class="journal-section' + (cls ? ' ' + cls : '') + '">'
+    + '<div class="journal-section-title">' + title + '</div>'
+    + '<div class="journal-section-body">' + escapeHtml(body) + '</div></div>';
+}
+
+function journalTexts(e){
+  let html = '';
+
+  if(e.notable_event && e.notable_event_text)
+    html += journalSection('Événement marquant', e.notable_event_text, 'journal-notable');
+  else if(e.notable_event)
+    html += '<div class="journal-section journal-notable"><div class="journal-section-title">Événement marquant</div></div>';
+
+  if(e.note_morning) html += journalSection('Note du matin', e.note_morning);
+  if(e.free_note)    html += journalSection('Note du soir', e.free_note);
+
+  // Rêves / cauchemars
+  const dq = ({1:'Vagues souvenirs', 2:'Rêves normaux', 3:'Rêves complexes'})[e.dream_quality];
+  if(dq || e.nightmare || e.nightmare_note){
+    let body = dq || '';
+    if(e.nightmare){ body += (body ? '\n' : '') + 'Cauchemar' + (e.nightmare_note ? ' : ' + e.nightmare_note : ''); }
+    else if(e.nightmare_note){ body += (body ? '\n' : '') + e.nightmare_note; }
+    if(body) html += journalSection('Rêves et cauchemars', body);
+  }
+
+  // Contexte des pensées suicidaires
+  if(e.suicidal_note) html += journalSection('Contexte des pensées suicidaires', e.suicidal_note, 'journal-suicidal');
+
+  if(html === '') html = '<div class="journal-empty">Rien d\'écrit ce jour.</div>';
+  return '<div class="journal-texts">' + html + '</div>';
+}
+
+function goJournalDay(dateStr){
+  state.journalDate = dateStr;
+  renderJournal();
+}
+window.goJournalDay = goJournalDay;
+
+function renderJournal(){
+  const sorted = journalSortedEntries();
+  const bar = document.getElementById('journal-topbar');
+  const c = document.getElementById('journal-content');
+  if(sorted.length === 0){
+    bar.innerHTML = '';
+    c.innerHTML = '<div class="journal-empty">Aucune saisie à relire.</div>';
+    return;
+  }
+  // Retrouver l'entrée courante (ou la plus récente si la date n'existe plus)
+  let idx = sorted.findIndex(e => e.date === state.journalDate);
+  if(idx === -1){ idx = sorted.length - 1; state.journalDate = sorted[idx].date; }
+  const e = sorted[idx];
+  const prev = idx > 0 ? sorted[idx - 1] : null;
+  const next = idx < sorted.length - 1 ? sorted[idx + 1] : null;
+
+  // Barre de navigation haute : précédent / aujourd'hui / suivant
+  const latest = sorted[sorted.length - 1];
+  const prevBtn = prev
+    ? '<button class="journal-nav-btn" onclick="goJournalDay(\'' + prev.date + '\')">← ' + escapeHtml(formatDate(prev.date)) + '</button>'
+    : '<span class="journal-nav-spacer"></span>';
+  const nextBtn = next
+    ? '<button class="journal-nav-btn" onclick="goJournalDay(\'' + next.date + '\')">' + escapeHtml(formatDate(next.date)) + ' →</button>'
+    : '<span class="journal-nav-spacer"></span>';
+  const todayBtn = (e.date !== latest.date)
+    ? '<button class="journal-nav-btn journal-nav-latest" onclick="goJournalDay(\'' + latest.date + '\')">Plus récent</button>'
+    : '<span class="journal-nav-spacer"></span>';
+  bar.innerHTML = prevBtn + todayBtn + nextBtn;
+
+  c.innerHTML =
+    '<div class="journal-date">' + escapeHtml(journalFullDate(e.date)) + '</div>'
+    + journalChips(e)
+    + journalTexts(e)
+    + '<div class="journal-edit"><button class="btn btn-secondary journal-edit-btn" onclick="showEditDay(\'' + e.id + '\', \'journal\')">Éditer ce jour</button></div>';
+  window.scrollTo(0, 0);
 }
 
 function editStep(session, stepName){
@@ -5161,6 +5325,7 @@ function scheduleSyncPush(){
 function refreshAfterSync(){
   const v = state.currentView;
   if(v === 'home') renderHome();
+  else if(v === 'journal') renderJournal();
   else if(v === 'history') renderHistoryView();
   else if(v === 'stats') renderStats();
   else if(v === 'edit-day'){
@@ -5232,6 +5397,7 @@ function init(){
   document.getElementById('card-entry-evening').addEventListener('click', ()=> startEntry(null, 'evening'));
   document.getElementById('fab-quicknote').addEventListener('click', openQuicknoteModal);
   document.getElementById('card-history').addEventListener('click', ()=> showView('history'));
+  document.getElementById('card-journal').addEventListener('click', openJournal);
   document.getElementById('card-stats').addEventListener('click', ()=> showView('stats'));
   document.getElementById('card-settings').addEventListener('click', ()=> showView('settings'));
 
