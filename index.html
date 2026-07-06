@@ -591,7 +591,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.23.0';
+const VERSION = '1.24.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -2468,8 +2468,8 @@ function jColorClass(metric, val){
       if(val >= 3) return 'jv-orange';
       return 'jv-red';
     case 'bad10': // haut = pire (anxiété)
-      if(val <= 3) return 'jv-green';
-      if(val <= 5) return 'jv-yellow';
+      if(val <= 1) return 'jv-green';
+      if(val <= 4) return 'jv-yellow';
       if(val <= 7) return 'jv-orange';
       return 'jv-red';
     case 'activity3':
@@ -2524,10 +2524,14 @@ function journalSection(title, body, cls){
 // Annotations du jour (mêmes repères jaunes que les Tendances : posologie + reformulations)
 function journalDayAnnotations(dateStr){
   const paroxTaper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
+  // Repères de posologie uniquement : on exclut les notes de méthodo (reformulations
+  // d'échelle) et les paliers paroxétine "1 jour sur 2", jugés hors journal par Julien.
   const evts = tendTaperEvents(paroxTaper)
-    .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
-    .concat(TEND_SCALE_EVENTS);
-  const labels = evts.filter(ev => ev && ev.date === dateStr).map(ev => ev.label);
+    .concat(tendMianserineTaperEvents(MIANSERINE_TAPER));
+  const labels = evts
+    .filter(ev => ev && ev.date === dateStr)
+    .map(ev => ev.label)
+    .filter(l => !/1 j\/2/.test(l));
   if(labels.length === 0) return '';
   return '<div class="journal-annots">'
     + labels.map(l => '<span class="journal-annot">' + escapeHtml(l) + '</span>').join('')
