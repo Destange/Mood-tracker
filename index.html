@@ -591,7 +591,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.25.1';
+const VERSION = '1.25.2';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -1208,7 +1208,7 @@ function startEntry(editId, session, forDate){
 const MIANSERINE_TAPER = [
   {from: '2026-07-03', mg: 30},
   {from: '2026-07-10', mg: 15},
-  {from: '2026-07-17', mg: 0}
+  {from: '2026-07-20', mg: 0}
 ];
 // Dose planifiée pour une date : dernier palier dont 'from' <= date, sinon la valeur par défaut de l'appareil.
 function mianserineDoseForDate(date, taper, fallback){
