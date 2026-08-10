@@ -591,7 +591,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.25.2';
+const VERSION = '1.26.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -647,6 +647,9 @@ function loadData(){
     if(!state.data.settings.history_view) state.data.settings.history_view = 'list';
     if(state.data.settings.archive_prompt_enabled === undefined) state.data.settings.archive_prompt_enabled = true;
     if(!state.data.settings.reminders) state.data.settings.reminders = defaultData().settings.reminders;
+    // v1.26.0 : dose par defaut venlafaxine (remplace mianserine, arretee le 20/07/2026)
+    if(!state.data.settings.defaults) state.data.settings.defaults = defaultData().settings.defaults;
+    if(state.data.settings.defaults.venlafaxine_mg === undefined) state.data.settings.defaults.venlafaxine_mg = VENLAFAXINE_DEFAULT_MG;
     // Migration ponctuelle : tags d'activités renommés (idempotent, sans doublon)
     const TAG_RENAMES = {'Hyperactivité': 'Hyperactif', 'Trajet Bus': 'Bus', 'Trajet Train': 'Train', 'Trajet Vélo': 'Vélo', 'Trajet Voiture': 'Voiture'};
     let _renamed = false;
@@ -684,7 +687,7 @@ function defaultData(){
         {from: '2026-04-22', to: null, mg: 0, mode: 'daily'}
       ],
       defaults: {
-        mianserine_mg: 30,
+        venlafaxine_mg: 37.5,
         oxazepam_mg: 0
       },
       treatment_start: '2026-01-27',
@@ -729,13 +732,15 @@ const FIELD_DEFS = {
   weight_kg: {type:'number', label:"Poids (kg, optionnel)"},
   // --- Session soir ---
   paroxetine_mg: {type:'number-mg', label:"Dose de paroxétine prise (mg)"},
-  mianserine_mg: {type:'number-mg', label:"Dose de miansérine prise (mg)"},
+  mianserine_mg: {type:'number-mg', label:"Dose de miansérine prise (mg). Traitement arrêté le 20/07/2026 : saisie retirée, historique conservé"},
+  venlafaxine_mg: {type:'number-mg', label:"Dose de venlafaxine prise le matin (mg). Traitement débuté le 10/08/2026"},
   oxazepam_mg: {type:'number-mg', label:"Dose totale d'oxazépam prise (mg)"},
   energy: {type:'integer-0-10', label:"Énergie du jour, bilan (0=épuisé, 10=disponible)"},
   anxiety: {type:'integer-0-10', label:"Anxiété du jour, bilan (0=aucune, 10=très intense)"},
   brain_fog: {type:'integer-0-10', label:"Brouillard mental, bilan journée (0=clair, 10=très embrumé)"},
   blunting: {type:'integer--5-5', label:"Attachement aux proches (−5=aucun lien ressenti, 0=lien habituel, +5=élans inhabituellement forts)"},
   libido: {type:'enum', values:['absente','diminuee','normale','exacerbee'], label:"Libido, par rapport à la normale personnelle"},
+  onan_count: {type:'integer', label:"Masturbation : nombre de fois dans la journée"},
   mood_evening: {type:'integer-0-10', label:"Humeur du jour (0=très basse, 10=très haute). Avant v1.9.0 : appréciation globale de la journée"},
   suicidal: {type:'enum', values:['aucune','fugaces','presentes','intenses'], label:"Idéations suicidaires"},
   suicidal_note: {type:'text', label:"Note sur les idéations (optionnel)"},
@@ -854,7 +859,7 @@ const ACTIVITY_CATEGORIES = [
   { label: '🏃 Mouvement', items: ['Activité Sportive', 'Manutention', 'Pas sorti', 'Sortie Nature', 'Sortie Ville', 'Tourisme'] },
   { label: '🏠 Quotidien', items: ['Bricolage', 'Cuisine', 'Rangement', 'Tâches Ménagères'] },
   { label: '🚗 Déplacements', items: ['Bus', 'Train', 'Vélo', 'Voiture'] },
-  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Shopping', 'Sortie Culturelle'] },
+  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Magic IRL', 'Magic Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Restaurant', 'Shopping', 'Sortie Culturelle'] },
   { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Luca', 'Yann', 'Solitude'] }
 ];
 
@@ -1057,7 +1062,7 @@ const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 
 
 /* Listes officielles des champs par session (source unique : blankEntry) */
 const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
-const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
 
@@ -1203,22 +1208,30 @@ function startEntry(editId, session, forDate){
   renderEntryStep();
 }
 
-// Plan de sevrage miansérine (psychiatre). Source unique : pilote la dose par défaut
-// du soir ET les repères ambre des Tendances. Modifier ici si le plan change.
+// Historique du sevrage mianserine (traitement termine le 20/07/2026). Ne pilote plus
+// aucune saisie : sert uniquement de reperes ambre dans les Tendances et le Journal.
 const MIANSERINE_TAPER = [
   {from: '2026-07-03', mg: 30},
   {from: '2026-07-10', mg: 15},
   {from: '2026-07-20', mg: 0}
 ];
-// Dose planifiée pour une date : dernier palier dont 'from' <= date, sinon la valeur par défaut de l'appareil.
-function mianserineDoseForDate(date, taper, fallback){
-  let best = null;
-  (taper || []).forEach(t => {
-    if(t && t.from && typeof t.mg === 'number' && t.from <= date){
-      if(!best || t.from > best.from) best = t;
-    }
-  });
-  return best ? best.mg : fallback;
+// Historique des paliers de venlafaxine (traitement debute le 10/08/2026). Meme role :
+// reperes ambre uniquement. Ajouter une ligne ici a chaque changement de dose.
+// La dose PRE-REMPLIE en saisie, elle, vient de Reglages > Doses par defaut (par appareil).
+const VENLAFAXINE_EVENTS = [
+  {from: '2026-08-10', mg: 37.5}
+];
+const VENLAFAXINE_START = VENLAFAXINE_EVENTS[0].from;
+const VENLAFAXINE_DEFAULT_MG = 37.5;
+// Affichage francais des doses : 37.5 -> "37,5"
+function fmtMg(v){
+  return String(v).replace('.', ',');
+}
+// Dose pre-remplie : 0 avant le debut du traitement (retroactif), sinon le reglage de l'appareil.
+function venlafaxineDefaultDose(date){
+  if(date && date < VENLAFAXINE_START) return 0;
+  const def = (state.data && state.data.settings && state.data.settings.defaults) || {};
+  return typeof def.venlafaxine_mg === 'number' ? def.venlafaxine_mg : VENLAFAXINE_DEFAULT_MG;
 }
 
 function blankEntry(date){
@@ -1246,13 +1259,15 @@ function blankEntry(date){
     weight_kg: null,
     // Session soir
     paroxetine_mg: 0, // traitement termine : plus de saisie, champ conserve pour l'historique
-    mianserine_mg: mianserineDoseForDate(date, MIANSERINE_TAPER, state.data.settings.defaults.mianserine_mg),
+    mianserine_mg: 0, // traitement arrete le 20/07/2026 : plus de saisie, champ conserve pour l'historique
+    venlafaxine_mg: venlafaxineDefaultDose(date),
     oxazepam_mg: 0,
     energy: null,
     anxiety: null,
     brain_fog: null,
     blunting: null,
     libido: null,
+    onan_count: 0,
     mood_evening: null,
     suicidal: 'aucune',
     suicidal_note: '',
@@ -1308,8 +1323,8 @@ window.applyEntryDate = function(){
   renderEntryStep();
 };
 /* Champs non poses en saisie minimale : vides (null), pas de faux zeros.
-   Exception voulue : la mianserine reste a la dose par defaut (routine quotidienne). */
-const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','libido','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
+   Exception voulue : la venlafaxine reste a la dose par defaut (routine quotidienne). */
+const MINIMAL_NULL_FIELDS = ['oxazepam_mg','brain_fog','blunting','libido','onan_count','rgo','rgo_intensity','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min'];
 function startMinimalEvening(){
   MINIMAL_NULL_FIELDS.forEach(f => { state.entryDraft[f] = null; });
   const hasQn = state.entrySteps[0] === 'quicknotes_review';
@@ -1506,6 +1521,23 @@ function buildStep(step){
       cards.appendChild(card);
     });
     w.appendChild(cards);
+    const onanWrap = document.createElement('div');
+    onanWrap.style.cssText = 'margin-top:24px';
+    onanWrap.innerHTML = `
+      <div style="font-size:13px;color:var(--text-faint);margin-bottom:10px;text-align:center">Onan.</div>
+      <div class="num-input">
+        <button id="onan-minus">−</button>
+        <input type="number" id="onan-count" value="${d.onan_count ?? 0}" min="0" max="20">
+        <button id="onan-plus">+</button>
+      </div>`;
+    w.appendChild(onanWrap);
+    setTimeout(()=>{
+      const oi = document.getElementById('onan-count');
+      if(!oi) return;
+      document.getElementById('onan-minus').onclick = ()=>{ d.onan_count = Math.max(0, (d.onan_count||0) - 1); oi.value = d.onan_count; };
+      document.getElementById('onan-plus').onclick  = ()=>{ d.onan_count = (d.onan_count||0) + 1; oi.value = d.onan_count; };
+      oi.oninput = e=>{ d.onan_count = Math.max(0, parseInt(e.target.value)||0); };
+    },0);
     if(d.libido == null) document.getElementById('entry-next').disabled = true;
     return w;
   }
@@ -1627,13 +1659,13 @@ function buildStep(step){
     grid.className = 'meds-grid';
     grid.innerHTML = `
       <div class="med-row">
-        <div class="name"><span>Miansérine</span></div>
-        <div class="desc">Au coucher</div>
+        <div class="name"><span>Venlafaxine</span></div>
+        <div class="desc">Le matin</div>
         <div class="num-input">
-          <button onclick="medAdjust('mianserine_mg',-10)">−</button>
-          <input type="number" id="m-mian" value="${d.mianserine_mg ?? ''}" min="0" step="10">
+          <button onclick="medAdjust('venlafaxine_mg',-37.5)">−</button>
+          <input type="number" id="m-venla" value="${d.venlafaxine_mg ?? ''}" min="0" step="37.5">
           <span class="unit">mg</span>
-          <button onclick="medAdjust('mianserine_mg',10)">+</button>
+          <button onclick="medAdjust('venlafaxine_mg',37.5)">+</button>
         </div>
       </div>
       <div class="med-row">
@@ -1649,7 +1681,7 @@ function buildStep(step){
     `;
     w.appendChild(grid);
     setTimeout(()=>{
-      document.getElementById('m-mian').oninput = e=>{ d.mianserine_mg = parseFloat(e.target.value)||0; };
+      document.getElementById('m-venla').oninput = e=>{ d.venlafaxine_mg = parseFloat(e.target.value)||0; };
       document.getElementById('m-oxa').oninput = e=>{ d.oxazepam_mg = parseFloat(e.target.value)||0; };
     },0);
     return w;
@@ -2172,13 +2204,15 @@ if(step === 'positive_feelings'){
       if(d.note_morning) rows.push(['Note', d.note_morning]);
     } else {
       rows = [['Date', formatDate(d.date)]];
-      if(typeof d.mianserine_mg === 'number') rows.push(['Miansérine', `${d.mianserine_mg} mg`]);
+      if(d.venlafaxine_mg) rows.push(['Venlafaxine', `${fmtMg(d.venlafaxine_mg)} mg`]);
+      if(d.mianserine_mg) rows.push(['Miansérine', `${d.mianserine_mg} mg`]);
       if(typeof d.oxazepam_mg === 'number') rows.push(['Oxazépam', `${d.oxazepam_mg} mg`]);
       if(typeof d.energy === 'number') rows.push(['Énergie globale', `${d.energy}/10`]);
       if(typeof d.anxiety === 'number') rows.push(['Anxiété', `${d.anxiety}/10`]);
       if(typeof d.brain_fog === 'number') rows.push(['Brouillard (journée)', `${d.brain_fog}/10`]);
       if(typeof d.blunting === 'number') rows.push(['Attachement aux proches', `${d.blunting > 0 ? '+' : ''}${d.blunting}`]);
       if(d.libido) rows.push(['Libido', libidoLabel(d.libido)]);
+      if(d.onan_count) rows.push(['Onan.', String(d.onan_count)]);
       if(typeof d.mood_evening === 'number') rows.push(['Humeur', `${d.mood_evening}/10`]);
       rows.push(['Idéations', suicidalLabel(d.suicidal)]);
       if(d.rgo !== null && d.rgo !== undefined) rows.push(['RGO', d.rgo ? `Oui (${d.rgo_intensity}/10)` : 'Non']);
@@ -2217,7 +2251,7 @@ if(step === 'positive_feelings'){
 window.medAdjust = function(field, delta){
   const d = state.entryDraft;
   d[field] = Math.max(0, (d[field]||0) + delta);
-  const inp = document.getElementById(field === 'paroxetine_mg' ? 'm-parox' : field === 'mianserine_mg' ? 'm-mian' : 'm-oxa');
+  const inp = document.getElementById(field === 'paroxetine_mg' ? 'm-parox' : field === 'venlafaxine_mg' ? 'm-venla' : 'm-oxa');
   if(inp) inp.value = d[field];
 };
 
@@ -2413,7 +2447,7 @@ function formatStepValue(e, step){
     case 'energy_morning': return e.energy_morning != null ? `${e.energy_morning}/10` : dash;
     case 'weight': return e.weight_kg != null ? `${e.weight_kg} kg` : dash;
     case 'note_morning': return e.note_morning ? `"${e.note_morning.slice(0,35)}${e.note_morning.length>35?'…':''}"` : dash;
-    case 'meds': { const m=[]; if(e.paroxetine_mg) m.push('Parox. '+e.paroxetine_mg+'mg'); if(typeof e.mianserine_mg==='number') m.push('Mians. '+e.mianserine_mg+'mg'); if(typeof e.oxazepam_mg==='number') m.push('Oxa. '+e.oxazepam_mg+'mg'); return m.length ? m.join(' · ') : dash; }
+    case 'meds': { const m=[]; if(e.paroxetine_mg) m.push('Parox. '+e.paroxetine_mg+'mg'); if(e.mianserine_mg) m.push('Mians. '+e.mianserine_mg+'mg'); if(e.venlafaxine_mg) m.push('Venla. '+fmtMg(e.venlafaxine_mg)+'mg'); if(typeof e.oxazepam_mg==='number') m.push('Oxa. '+e.oxazepam_mg+'mg'); return m.length ? m.join(' · ') : dash; }
     case 'energy': return e.energy != null ? `${e.energy}/10` : dash;
     case 'anxiety': return e.anxiety != null ? `${e.anxiety}/10` : dash;
     case 'brain_fog': return e.brain_fog != null ? `${e.brain_fog}/10` : dash;
@@ -2504,9 +2538,11 @@ function journalChips(e){
   if(e.anxiety != null) add('Anxiété', e.anxiety + '/10', jColorClass('bad10', e.anxiety));
   if(e.physical_activity != null) add('Activité phys.', e.physical_activity + '/3', jColorClass('activity3', e.physical_activity));
   if(e.libido) add('Libido', libidoLabel(e.libido), jLibidoColor(e.libido));
+  if(e.onan_count) add('Onan.', String(e.onan_count));
   const meds = [];
   if(typeof e.paroxetine_mg === 'number' && e.paroxetine_mg) meds.push('Parox. ' + e.paroxetine_mg + 'mg');
   if(typeof e.mianserine_mg === 'number' && e.mianserine_mg) meds.push('Mians. ' + e.mianserine_mg + 'mg');
+  if(typeof e.venlafaxine_mg === 'number' && e.venlafaxine_mg) meds.push('Venla. ' + fmtMg(e.venlafaxine_mg) + 'mg');
   if(typeof e.oxazepam_mg === 'number' && e.oxazepam_mg) meds.push('Oxa. ' + e.oxazepam_mg + 'mg');
   if(meds.length) add('Médicaments', meds.join(' · '));
   if(e.suicidal && e.suicidal !== 'aucune') add('Pensées suic.', suicidalLabel(e.suicidal), jSuicidalColor(e.suicidal));
@@ -2527,7 +2563,8 @@ function journalDayAnnotations(dateStr){
   // Repères de posologie uniquement : on exclut les notes de méthodo (reformulations
   // d'échelle) et les paliers paroxétine "1 jour sur 2", jugés hors journal par Julien.
   const evts = tendTaperEvents(paroxTaper)
-    .concat(tendMianserineTaperEvents(MIANSERINE_TAPER));
+    .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
+    .concat(tendVenlafaxineEvents(VENLAFAXINE_EVENTS));
   const labels = evts
     .filter(ev => ev && ev.date === dateStr)
     .map(ev => ev.label)
@@ -3149,6 +3186,14 @@ function tendMianserineTaperEvents(taper){
   }));
 }
 
+// Repères des paliers de venlafaxine (source unique VENLAFAXINE_EVENTS).
+function tendVenlafaxineEvents(plan){
+  return (plan || []).filter(t => t && t.from).map((t, i) => ({
+    date: t.from,
+    label: t.mg === 0 ? 'Arrêt venlafaxine' : (i === 0 ? 'Début venlafaxine ' : 'Venlafaxine ') + fmtMg(t.mg) + ' mg'
+  }));
+}
+
 // Reformulations de questions/échelles (audit décision 1 : annoter les changements de formulation)
 const TEND_SCALE_EVENTS = [
   {date: '2026-06-11', label: 'Reformulation humeur'},
@@ -3241,6 +3286,7 @@ function renderTendances(c, entries){
   const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
   const events = tendTaperEvents(taper)
     .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
+    .concat(tendVenlafaxineEvents(VENLAFAXINE_EVENTS))
     .filter(ev => ev.date >= from && ev.date <= today);
   const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
 
@@ -4373,7 +4419,7 @@ function renderSettings(){
   const dd = document.getElementById('defaults-display');
   const def = state.data.settings.defaults;
   dd.innerHTML = `
-    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Miansérine : <strong style="color:var(--text)">${def.mianserine_mg} mg</strong></div>
+    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Venlafaxine : <strong style="color:var(--text)">${fmtMg(def.venlafaxine_mg ?? VENLAFAXINE_DEFAULT_MG)} mg</strong></div>
     <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Oxazépam : <strong style="color:var(--text)">${def.oxazepam_mg} mg</strong></div>
   `;
 
@@ -4430,8 +4476,8 @@ function editDefaults(){
     <h3>Doses par défaut</h3>
     <p>Valeurs pré-remplies à chaque nouvelle saisie.</p>
     <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--text-faint)">Miansérine (mg)</label>
-      <input type="number" id="def-mian" value="${def.mianserine_mg}" min="0" step="10">
+      <label style="font-size:12px;color:var(--text-faint)">Venlafaxine (mg)</label>
+      <input type="number" id="def-venla" value="${def.venlafaxine_mg ?? VENLAFAXINE_DEFAULT_MG}" min="0" step="37.5">
     </div>
     <div style="margin-bottom:18px">
       <label style="font-size:12px;color:var(--text-faint)">Oxazépam (mg)</label>
@@ -4446,7 +4492,7 @@ function editDefaults(){
 }
 
 window.saveDefaults = async function(){
-  state.data.settings.defaults.mianserine_mg = parseFloat(document.getElementById('def-mian').value)||0;
+  state.data.settings.defaults.venlafaxine_mg = parseFloat(document.getElementById('def-venla').value)||0;
   state.data.settings.defaults.oxazepam_mg = parseFloat(document.getElementById('def-oxa').value)||0;
   await saveData();
   closeModal();
@@ -4476,7 +4522,7 @@ function exportJSON(){
 }
 
 function exportCSV(){
-  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
   const header = cols.join(';');
   const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
     cols.map(c => csvEscape(e[c])).join(';')
@@ -4536,9 +4582,9 @@ function exportMarkdown(){
     }
     if(e.evening_done){
       md += `**Soir**\n`;
-      { const doses = []; if(e.paroxetine_mg) doses.push(`paroxétine ${e.paroxetine_mg}mg`); if(typeof e.mianserine_mg==='number') doses.push(`miansérine ${e.mianserine_mg}mg`); if(typeof e.oxazepam_mg==='number') doses.push(`oxazépam ${e.oxazepam_mg}mg`); if(doses.length) md += `- Doses : ${doses.join(', ')}\n`; }
+      { const doses = []; if(e.paroxetine_mg) doses.push(`paroxétine ${e.paroxetine_mg}mg`); if(e.mianserine_mg) doses.push(`miansérine ${e.mianserine_mg}mg`); if(e.venlafaxine_mg) doses.push(`venlafaxine ${fmtMg(e.venlafaxine_mg)}mg`); if(typeof e.oxazepam_mg==='number') doses.push(`oxazépam ${e.oxazepam_mg}mg`); if(doses.length) md += `- Doses : ${doses.join(', ')}\n`; }
       { const conso = []; if(typeof e.cafes_count==='number') conso.push(`Cafés ${e.cafes_count}`); if(typeof e.alcohol_units==='number') conso.push(`Alcool ${e.alcohol_units}`); if(e.gaviscon_doses) conso.push('Gaviscon '+e.gaviscon_doses); if(e.pantoprazole_doses) conso.push('Panto. '+e.pantoprazole_doses); if(e.ltyrosine_mg) conso.push('L-Tyr '+e.ltyrosine_mg+'mg'); if(conso.length) md += `- ${conso.join(' · ')}\n`; }
-      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Attachement ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
+      { const st = []; if(typeof e.energy==='number') st.push(`Énergie ${e.energy}/10`); if(typeof e.anxiety==='number') st.push(`Anxiété ${e.anxiety}/10`); if(typeof e.brain_fog==='number') st.push(`Brouillard ${e.brain_fog}/10`); if(typeof e.blunting==='number') st.push(`Attachement ${e.blunting > 0 ? '+' : ''}${e.blunting}`); if(e.libido) st.push(`Libido ${libidoLabel(e.libido)}`); if(e.onan_count) st.push(`Onan. ${e.onan_count}`); if(st.length) md += `- ${st.join(' · ')}\n`; }
       if(typeof e.mood_evening==='number') md += `- Humeur : ${e.mood_evening}/10\n`;
       const phLabels = {0:'Sédentaire',1:'Légèrement actif',2:'Actif',3:'Cardio'};
       if(e.physical_activity !== null && e.physical_activity !== undefined) md += `- Activité physique : ${phLabels[e.physical_activity]||'—'}\n`;
@@ -4763,6 +4809,9 @@ function exportPDF(){
       if(e.libido){
         dh += '<tr><td>Libido</td><td>'+({absente:'Absente',diminuee:'Diminuée',normale:'Normale',exacerbee:'Exacerbée'}[e.libido]||e.libido)+'</td></tr>';
       }
+      if(e.onan_count){
+        dh += '<tr><td>Onan.</td><td>'+e.onan_count+'</td></tr>';
+      }
       // Activité physique : label
       if(e.physical_activity !== undefined && e.physical_activity !== null){
         const actPhLabel = actPhLabels[e.physical_activity] || '—';
@@ -4787,6 +4836,7 @@ function exportPDF(){
       const medsArr = [];
       if(e.paroxetine_mg)      medsArr.push('Paroxétine '+e.paroxetine_mg+'mg');
       if(e.mianserine_mg)      medsArr.push('Miansérine '+e.mianserine_mg+'mg');
+      if(e.venlafaxine_mg)     medsArr.push('Venlafaxine '+fmtMg(e.venlafaxine_mg)+'mg');
       if(e.oxazepam_mg)        medsArr.push('Oxazépam '+e.oxazepam_mg+'mg');
       if(e.gaviscon_doses)     medsArr.push('Gaviscon ×'+e.gaviscon_doses);
       if(e.pantoprazole_doses) medsArr.push('Pantoprazole ×'+e.pantoprazole_doses);
