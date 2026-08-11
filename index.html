@@ -88,6 +88,11 @@ input:focus,textarea:focus,select:focus,button:focus{outline:2px solid var(--tea
 .home-alert.alert-warning{background:rgba(245,166,35,.08);border-color:rgba(245,166,35,.3);color:var(--amber)}
 .home-alert.alert-danger{background:rgba(231,76,60,.08);border-color:rgba(231,76,60,.3);color:#e74c3c}
 .home-alert-icon{font-size:18px;flex-shrink:0;margin-top:1px}
+.home-resume-card{display:flex;flex-direction:column;gap:12px;padding:14px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:10px;border:1px solid rgba(78,205,196,.35);background:rgba(78,205,196,.08)}
+.home-resume-text strong{display:block;font-weight:600;margin-bottom:3px;color:var(--text)}
+.home-resume-text span{color:var(--text-dim);font-size:12px}
+.home-resume-actions{display:flex;gap:10px}
+.home-resume-actions .btn{flex:1;padding:9px 12px;font-size:13px;min-height:0}
 .home-alert-text strong{display:block;font-weight:600;margin-bottom:2px}
 .home-alert-text span{color:var(--text-dim);font-size:12px}
 
@@ -409,6 +414,8 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
       </div>
     </div>
 
+    <div id="home-resume"></div>
+
     <div id="home-alerts"></div>
 
     <div class="home-cards">
@@ -591,7 +598,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.26.1';
+const VERSION = '1.27.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -1030,6 +1037,7 @@ function renderHome(){
   fab.title = qnCount > 0 ? `${qnCount} note${qnCount > 1 ? 's' : ''} du jour` : 'Note rapide';
 
   renderAlerts();
+  renderEntryProgressBanner();
 }
 
 function todayStr(){
@@ -1165,6 +1173,22 @@ function mergeTrackerData(local, remote){
 
 function startEntry(editId, session, forDate){
   const today = forDate || logicalDateStr();
+  // Une saisie de la meme session est deja commencee : ne jamais l'ecraser en silence
+  if(!editId && session && !_pendingStartArgs){
+    const u = usableEntryProgress();
+    if(u && u.rec.date === today && u.rec.session === session){
+      const pos = entryProgressPosition(u.chk);
+      _pendingStartArgs = {session: session, forDate: forDate};
+      showModal('<h3>Saisie déjà commencée</h3>'
+        + '<p>Une saisie ' + (session === 'morning' ? 'du matin' : 'du soir') + ' pour ' + escapeHtml(formatDate(today))
+        + ' est en cours, arrêtée à la question ' + pos.num + ' sur ' + pos.total + '.</p>'
+        + '<div class="modal-actions">'
+        + '<button class="btn btn-secondary" onclick="startEntryFresh()">Repartir de zéro</button>'
+        + '<button class="btn btn-primary" onclick="startEntryResume()">Reprendre</button>'
+        + '</div>');
+      return;
+    }
+  }
   if(editId){
     const entry = state.data.entries.find(e=>e.id === editId);
     if(!entry) return;
@@ -2273,6 +2297,147 @@ function escapeHtml(s){
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+/* ============================================================
+   BROUILLON DE LA SAISIE EN COURS (v1.27.0)
+   Ecrit dans une cle localStorage SEPAREE des donnees : jamais synchronise
+   vers le Gist, jamais exporte, jamais compte dans les statistiques. Une
+   session a moitie remplie ne peut donc pas ecraser une session complete
+   saisie sur un autre appareil.
+   ============================================================ */
+const ENTRY_PROGRESS_KEY = 'tracker_entry_progress_v1';
+const ENTRY_PROGRESS_MAX_DAYS = 7;
+const ENTRY_PROGRESS_DEBOUNCE_MS = 2000;
+
+/* ===== EPROG-PURE-BEGIN ===== (logique pure, testable hors navigateur) */
+// Age du brouillon en jours. null si les dates sont illisibles.
+function entryProgressAgeDays(savedIso, nowIso){
+  const a = Date.parse(savedIso), b = Date.parse(nowIso);
+  if(isNaN(a) || isNaN(b)) return null;
+  return (b - a) / 86400000;
+}
+// Une MAJ de l'app peut avoir retire des questions : on ne garde que celles qui existent encore.
+function entryProgressCleanSteps(steps, knownSteps){
+  if(!Array.isArray(steps)) return [];
+  return steps.filter(s => knownSteps.indexOf(s) !== -1);
+}
+// Le brouillon est-il exploitable ? -> {ok, reason, steps, step}
+function entryProgressCheck(rec, entries, knownSteps, nowIso){
+  if(!rec || typeof rec !== 'object') return {ok:false, reason:'absent'};
+  if(!rec.date || (rec.session !== 'morning' && rec.session !== 'evening')) return {ok:false, reason:'illisible'};
+  if(!rec.draft || typeof rec.draft !== 'object') return {ok:false, reason:'illisible'};
+  const age = entryProgressAgeDays(rec.saved_at, nowIso);
+  if(age === null || age > ENTRY_PROGRESS_MAX_DAYS || age < -1) return {ok:false, reason:'perime'};
+  // Session validee entre temps (sur cet appareil ou recue par la synchro)
+  const dejaValide = (entries || []).some(e => e && e.date === rec.date && e[rec.session + '_done']);
+  if(dejaValide) return {ok:false, reason:'deja_valide'};
+  const steps = entryProgressCleanSteps(rec.steps, knownSteps);
+  if(steps.length === 0) return {ok:false, reason:'illisible'};
+  const step = (typeof rec.step === 'number' && rec.step >= 0) ? Math.min(rec.step, steps.length - 1) : 0;
+  return {ok:true, reason:'', steps: steps, step: step};
+}
+// Position affichee dans le bandeau (1-based)
+function entryProgressPosition(chk){
+  return {num: chk.step + 1, total: chk.steps.length};
+}
+/* ===== EPROG-PURE-END ===== */
+
+function entryProgressKnownSteps(){
+  return [...new Set([].concat(MORNING_STEPS, EVENING_STEPS, EVENING_MINIMAL_STEPS, ['quicknotes_review']))];
+}
+function loadEntryProgress(){
+  try{ return JSON.parse(localStorage.getItem(ENTRY_PROGRESS_KEY)); }catch(e){ return null; }
+}
+let _entryProgressTimer = null;
+function _entryProgressCancel(){
+  if(_entryProgressTimer){ clearTimeout(_entryProgressTimer); _entryProgressTimer = null; }
+}
+function clearEntryProgress(){
+  _entryProgressCancel();
+  try{ localStorage.removeItem(ENTRY_PROGRESS_KEY); }catch(e){}
+}
+// Ecriture immediate. Uniquement la saisie guidee : jamais l'edition d'un champ isole
+// depuis la fiche du jour, qui s'enregistre deja directement.
+function saveEntryProgress(){
+  _entryProgressCancel();
+  if(state.currentView !== 'entry' || state.singleStepEdit) return;
+  if(!state.entryDraft || !Array.isArray(state.entrySteps) || state.entrySteps.length === 0) return;
+  try{
+    localStorage.setItem(ENTRY_PROGRESS_KEY, JSON.stringify({
+      v: VERSION,
+      saved_at: new Date().toISOString(),
+      date: state.entryDraft.date,
+      session: state.entrySession,
+      steps: state.entrySteps,
+      step: state.entryStep,
+      editing_entry_id: state.editingEntryId || null,
+      draft: state.entryDraft
+    }));
+  }catch(e){ /* quota ou stockage indisponible : ne jamais interrompre la saisie */ }
+}
+// Ecriture differee : frappe en cours sur la question affichee
+function scheduleEntryProgressSave(){
+  if(state.currentView !== 'entry' || state.singleStepEdit) return;
+  _entryProgressCancel();
+  _entryProgressTimer = setTimeout(saveEntryProgress, ENTRY_PROGRESS_DEBOUNCE_MS);
+}
+// Brouillon exploitable, sinon null (et nettoyage au passage)
+function usableEntryProgress(){
+  const rec = loadEntryProgress();
+  if(!rec) return null;
+  const chk = entryProgressCheck(rec, state.data.entries, entryProgressKnownSteps(), new Date().toISOString());
+  if(!chk.ok){
+    if(chk.reason !== 'absent') clearEntryProgress();
+    return null;
+  }
+  return {rec: rec, chk: chk};
+}
+function renderEntryProgressBanner(){
+  const wrap = document.getElementById('home-resume');
+  if(!wrap) return;
+  const u = usableEntryProgress();
+  if(!u){ wrap.innerHTML = ''; return; }
+  const pos = entryProgressPosition(u.chk);
+  wrap.innerHTML = '<div class="home-resume-card">'
+    + '<div class="home-resume-text"><strong>Saisie ' + (u.rec.session === 'morning' ? 'du matin' : 'du soir') + ' en cours</strong>'
+    + '<span>' + escapeHtml(formatDate(u.rec.date)) + ' · arrêtée à la question ' + pos.num + ' sur ' + pos.total + '. Tes réponses sont gardées.</span></div>'
+    + '<div class="home-resume-actions">'
+    + '<button class="btn btn-primary" onclick="resumeEntryProgress()">Reprendre</button>'
+    + '<button class="btn btn-secondary" onclick="discardEntryProgress()">Repartir de zéro</button>'
+    + '</div></div>';
+}
+window.resumeEntryProgress = function(){
+  const u = usableEntryProgress();
+  if(!u){ renderEntryProgressBanner(); toast('Cette saisie n\'est plus disponible.', 'error'); return; }
+  state.entryDraft = JSON.parse(JSON.stringify(u.rec.draft));
+  migrateEntry(state.entryDraft);
+  state.entrySession = u.rec.session;
+  state.entrySteps = u.chk.steps;
+  state.entryStep = u.chk.step;
+  state.editingEntryId = u.rec.editing_entry_id || null;
+  state.singleStepEdit = false;
+  showView('entry');
+  renderEntryStep();
+};
+window.discardEntryProgress = function(){
+  clearEntryProgress();
+  renderEntryProgressBanner();
+  toast('Saisie en cours effacée.', 'success');
+};
+// Reprise proposee quand on relance une session qui a deja un brouillon
+let _pendingStartArgs = null;
+window.startEntryFresh = function(){
+  closeModal();
+  clearEntryProgress();
+  const a = _pendingStartArgs || {};
+  _pendingStartArgs = null;
+  startEntry(null, a.session, a.forDate);
+};
+window.startEntryResume = function(){
+  closeModal();
+  _pendingStartArgs = null;
+  resumeEntryProgress();
+};
+
 async function nextStep(){
   if(state.entryStep === state.entrySteps.length - 1){
     if(state.singleStepEdit){
@@ -2313,12 +2478,14 @@ async function nextStep(){
       else state.data.entries.push(draft);
     }
     await saveData();
+    clearEntryProgress();
     showView('home');
     toast(`Session ${state.entrySession === 'morning' ? 'matin' : 'soir'} enregistrée.`, 'success');
     return;
   }
   state.entryStep++;
   renderEntryStep();
+  saveEntryProgress();
 }
 
 function prevStep(){
@@ -2330,6 +2497,7 @@ function prevStep(){
   if(state.entryStep > 0){
     state.entryStep--;
     renderEntryStep();
+    saveEntryProgress();
   }
 }
 
@@ -5507,6 +5675,17 @@ function init(){
   document.getElementById('entry-back').addEventListener('click', prevStep);
   document.getElementById('entry-next').addEventListener('click', nextStep);
 
+  // Brouillon de saisie : ecriture differee a chaque reponse ou frappe...
+  const _entryCont = document.getElementById('entry-step-container');
+  if(_entryCont){
+    ['input', 'change', 'click'].forEach(ev => _entryCont.addEventListener(ev, scheduleEntryProgressSave));
+  }
+  // ...et ecriture immediate des que l'ecran s'eteint ou que l'app passe en arriere-plan
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden') saveEntryProgress();
+  });
+  window.addEventListener('pagehide', saveEntryProgress);
+
   // Stats tabs
   document.getElementById('stats-tabs').addEventListener('click', e => {
     if(e.target.matches('.stats-tab')){
@@ -5548,6 +5727,7 @@ function init(){
         localStorage.removeItem(SYNC_BACKUP_KEY);
         localStorage.removeItem(REMINDER_FIRED_KEY);
         localStorage.removeItem(ARCHIVE_KEY);
+        localStorage.removeItem(ENTRY_PROGRESS_KEY);
         location.reload();
       }
     }
