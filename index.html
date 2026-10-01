@@ -366,6 +366,29 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .jchip-v.jv-red{color:#e74c3c}
 .journal-annots{display:flex;flex-wrap:wrap;gap:8px}
 .journal-annot{background:rgba(245,166,35,.12);border:1px solid var(--amber-dim);color:var(--amber);border-radius:8px;padding:4px 11px;font-size:12px;font-weight:600}
+.journal-tagsblock{margin-top:24px;display:flex;flex-direction:column;gap:14px}
+.journal-tag-title{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px}
+.journal-tags{display:flex;flex-wrap:wrap;gap:6px}
+.jtag{border-radius:999px;padding:4px 11px;font-size:12px;border:1px solid var(--border);background:var(--bg-2);color:var(--text)}
+.jtag-person{border-color:rgba(155,109,255,.45);background:rgba(155,109,255,.12);color:#c9b3ff}
+.jtag-pos{border-color:rgba(93,187,99,.45);background:rgba(93,187,99,.12);color:#86d68c}
+.jtag-neg{border-color:rgba(231,76,60,.45);background:rgba(231,76,60,.12);color:#f2958a}
+.tr-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.tr-row:last-child{border-bottom:none}
+.tr-main{flex:1;min-width:0}
+.tr-main strong{display:block;font-size:14px;color:var(--text)}
+.tr-main span{font-size:12px;color:var(--text-dim)}
+.tr-actions{display:flex;gap:6px;flex-shrink:0}
+.tr-actions button,.pc-actions button{padding:6px 10px;font-size:12px;min-height:0}
+.tr-check{padding:12px 14px;border-radius:var(--radius-sm);font-size:13px;border:1px solid}
+.tr-check.ok{border-color:rgba(78,205,196,.3);background:rgba(78,205,196,.06);color:var(--text-dim)}
+.tr-check.warn{border-color:rgba(245,166,35,.35);background:rgba(245,166,35,.07);color:var(--text)}
+.tr-check ul{margin:8px 0 12px;padding-left:18px;max-height:200px;overflow-y:auto;color:var(--text-dim);font-size:12px}
+.pc-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.pc-row:last-child{border-bottom:none}
+.pc-name{flex:1;font-size:14px;color:var(--text)}
+.pc-actions{display:flex;gap:4px}
+.chip.chip-add{border-style:dashed;opacity:.85}
 .journal-nightmare{border-left:3px solid var(--red-dim);padding-left:14px}
 .journal-nightmare .journal-section-title{color:var(--text-dim)}
 .journal-bottombar{margin-top:30px;margin-bottom:6px}
@@ -508,6 +531,22 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     <h2 style="margin:0 0 16px;font-size:22px">Réglages</h2>
 
     <div class="settings-section">
+      <h3>Traitements</h3>
+      <p class="help">Paliers datés. Ils posent les repères ambrés des courbes et du Journal, et la dose de venlafaxine pré-remplie le soir suit le dernier palier. Partagés entre tes appareils par la synchro.</p>
+      <div id="treatments-list"></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-secondary" id="btn-add-treatment">Ajouter un palier</button>
+      </div>
+      <div id="treatments-check" style="margin-top:14px"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Prénoms proposés</h3>
+      <p class="help">Liste et ordre des prénoms dans les activités du jour. Un prénom retiré n'est plus proposé mais reste dans l'historique.</p>
+      <div id="persons-config"></div>
+    </div>
+
+    <div class="settings-section">
       <h3>Doses habituelles</h3>
       <p class="help">Valeurs pré-remplies à chaque saisie (modifiables au cas par cas).</p>
       <div id="defaults-display"></div>
@@ -598,7 +637,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.27.1';
+const VERSION = '1.28.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -629,6 +668,7 @@ function loadData(){
   const raw = localStorage.getItem(STORAGE_DATA);
   if(!raw){
     state.data = defaultData();
+    state.data.treatments = seedTreatments(state.data.treatments).list;
     saveData();
     return;
   }
@@ -640,6 +680,12 @@ function loadData(){
     if(!state.data.deleted_days) state.data.deleted_days = [];
     if(state.data.quicknotes_cleared_at === undefined) state.data.quicknotes_cleared_at = '';
     if(state.data.pending_bedtime === undefined) state.data.pending_bedtime = null;
+    // v1.28.0 : paliers de traitement editables et liste des prenoms (synchronises)
+    if(!Array.isArray(state.data.treatments)) state.data.treatments = [];
+    if(state.data.persons_config === undefined) state.data.persons_config = null;
+    const _seed = seedTreatments(state.data.treatments);
+    const _seeded = _seed.changed;
+    if(_seeded) state.data.treatments = _seed.list;
     // Horodatages par session (synchro) : reprise depuis created_at pour l'existant
     (state.data.entries || []).forEach(en => {
       if(en.morning_updated_at === undefined) en.morning_updated_at = en.morning_done ? (en.created_at || '') : '';
@@ -666,7 +712,7 @@ function loadData(){
         _renamed = true;
       }
     });
-    if(_renamed || _resoPurged) saveData();
+    if(_renamed || _resoPurged || _seeded) saveData();
   }catch(e){
     console.error('Corrupted data, resetting', e);
     // Garder la donnee brute corrompue pour une eventuelle recuperation manuelle
@@ -710,7 +756,9 @@ function defaultData(){
     quicknotes: [],
     deleted_days: [],
     quicknotes_cleared_at: '',
-    pending_bedtime: null
+    pending_bedtime: null,
+    treatments: [],
+    persons_config: null
   };
 }
 
@@ -764,6 +812,7 @@ const FIELD_DEFS = {
   physical_activity: {type:'integer-0-3', label:"Niveau d'activité physique (0=sédentaire, 3=cardio)"},
   social_media_min: {type:'integer-0+', label:"Temps sur les réseaux sociaux (minutes)"},
   activities: {type:'array-enum', label:"Activités du jour"},
+  adhoc_persons: {type:'array-text', label:"Prénoms ajoutés ponctuellement ce jour-là (présents aussi dans activities, à compter comme des personnes)"},
   activities_other: {type:'text', label:"Activité personnalisée (Autre)"},
   activities_note: {type:'text', label:"Note libre sur les activités"},
   notable_event: {type:'boolean', label:"Événement marquant dans la journée"},
@@ -866,9 +915,34 @@ const ACTIVITY_CATEGORIES = [
   { label: '🏃 Mouvement', items: ['Activité Sportive', 'Manutention', 'Marche', 'Pas sorti', 'Randonnée', 'Sortie Nature', 'Sortie Ville', 'Tourisme'] },
   { label: '🏠 Quotidien', items: ['Bricolage', 'Cuisine', 'Rangement', 'Tâches Ménagères'] },
   { label: '🚗 Déplacements', items: ['Bus', 'Train', 'Vélo', 'Voiture'] },
-  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Magic IRL', 'Musique Fun Partagée', 'Musique Fun Solo', 'Restaurant', 'Shopping', 'Sortie Culturelle'] },
-  { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Aalehx', 'Adma', 'Axelle', 'Benjamin', 'Luca', 'Yann', 'Solitude'] }
+  { label: '🎮 Loisirs', items: ['Code/Activité IA', 'Détente Culturelle', 'Jeu Vidéo Co-Op', 'Jeu Vidéo Solo', 'Musique Fun Partagée', 'Musique Fun Solo', 'Restaurant', 'Shopping', 'Sortie Culturelle'] },
+  { label: '👥 Personnes', items: ['Rebecca', 'Juliette', 'Elèves', 'Florence', 'Giovanni', 'Adma', 'Axelle', 'Benjamin', 'Luca', 'Solitude'] }
 ];
+
+/* ===== PERSONS (v1.28.0) =====
+   La liste des prenoms proposes est modifiable dans Reglages (ordre, ajout, retrait) et synchronisee
+   (state.data.persons_config = {active, retired, updated_at}). Un prenom retire reste reconnu comme
+   une personne pour l'historique. Les prenoms ajoutes avec "+" pendant une saisie ne valent que pour
+   ce jour-la : ils sont dans entry.activities ET entry.adhoc_persons. */
+const DEFAULT_PERSONS_ACTIVE = ACTIVITY_CATEGORIES.find(c => c.label.indexOf('Personnes') !== -1).items.slice();
+const DEFAULT_PERSONS_RETIRED = ['Aalehx', 'Yann'];
+function personsCfg(cfg){
+  if(cfg && Array.isArray(cfg.active)) return {active: cfg.active, retired: Array.isArray(cfg.retired) ? cfg.retired : [], updated_at: cfg.updated_at || ''};
+  return {active: DEFAULT_PERSONS_ACTIVE.slice(), retired: DEFAULT_PERSONS_RETIRED.slice(), updated_at: ''};
+}
+function knownPersons(cfg){
+  const c = personsCfg(cfg);
+  return c.active.concat(c.retired);
+}
+function isPersonTag(tag, entry, cfg){
+  if(knownPersons(cfg).indexOf(tag) !== -1) return true;
+  return !!(entry && Array.isArray(entry.adhoc_persons) && entry.adhoc_persons.indexOf(tag) !== -1);
+}
+// Categories d'activites avec la liste de prenoms courante
+function activityCategories(){
+  const active = personsCfg(state.data && state.data.persons_config).active;
+  return ACTIVITY_CATEGORIES.map(c => c.label.indexOf('Personnes') !== -1 ? {label: c.label, items: active.slice()} : c);
+}
 
 /* ============================================================
    VUES — routing
@@ -1070,7 +1144,7 @@ const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 
 
 /* Listes officielles des champs par session (source unique : blankEntry) */
 const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
-const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','adhoc_persons','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
 
@@ -1125,6 +1199,33 @@ function mergeEntryPair(a, b){
   return merged;
 }
 
+/* Paliers de traitement : fusion par id, la version la plus recente (updated_at) gagne.
+   Une suppression est un enregistrement garde avec deleted:true, pour qu'elle se propage. */
+function mergeTreatments(a, b){
+  const byId = {};
+  (a || []).concat(b || []).forEach(t => {
+    if(!t || !t.id) return;
+    const cur = byId[t.id];
+    if(!cur){ byId[t.id] = t; return; }
+    const cu = cur.updated_at || '', tu = t.updated_at || '';
+    if(tu > cu) byId[t.id] = t;
+    else if(tu === cu && JSON.stringify(t) > JSON.stringify(cur)) byId[t.id] = t; // egalite : choix deterministe
+  });
+  return Object.keys(byId).sort().map(id => JSON.parse(JSON.stringify(byId[id])));
+}
+
+/* Liste des prenoms proposes : la derniere modification gagne */
+function mergePersonsConfig(a, b){
+  if(!a && !b) return null;
+  if(!a) return JSON.parse(JSON.stringify(b));
+  if(!b) return JSON.parse(JSON.stringify(a));
+  const au = a.updated_at || '', bu = b.updated_at || '';
+  if(au > bu) return JSON.parse(JSON.stringify(a));
+  if(bu > au) return JSON.parse(JSON.stringify(b));
+  const aj = JSON.stringify(a), bj = JSON.stringify(b);
+  return JSON.parse(aj >= bj ? aj : bj);
+}
+
 /* Fusion complete de deux jeux de donnees {entries, deleted_days, quicknotes, quicknotes_cleared_at} */
 function mergeTrackerData(local, remote){
   const L = local || {}, R = remote || {};
@@ -1167,7 +1268,10 @@ function mergeTrackerData(local, remote){
   quicknotes.sort((x, y) => (x.created_at || '').localeCompare(y.created_at || ''));
   // 5. Coucher memorise : pression la plus recente
   const pending_bedtime = mergePendingBedtime(L.pending_bedtime, R.pending_bedtime);
-  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt, pending_bedtime: pending_bedtime};
+  // 6. Paliers de traitement et liste des prenoms (v1.28.0)
+  const treatments = mergeTreatments(L.treatments, R.treatments);
+  const persons_config = mergePersonsConfig(L.persons_config, R.persons_config);
+  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt, pending_bedtime: pending_bedtime, treatments: treatments, persons_config: persons_config};
 }
 /* ===== SYNC-PURE-END ===== */
 
@@ -1239,23 +1343,96 @@ const MIANSERINE_TAPER = [
   {from: '2026-07-10', mg: 15},
   {from: '2026-07-20', mg: 0}
 ];
-// Historique des paliers de venlafaxine (traitement debute le 10/08/2026). Meme role :
-// reperes ambre uniquement. Ajouter une ligne ici a chaque changement de dose.
-// La dose PRE-REMPLIE en saisie, elle, vient de Reglages > Doses par defaut (par appareil).
-const VENLAFAXINE_EVENTS = [
-  {from: '2026-08-10', mg: 37.5}
-];
-const VENLAFAXINE_START = VENLAFAXINE_EVENTS[0].from;
+// Ancienne dose par defaut (avant v1.28.0). Gardee pour la migration des reglages, ne pilote plus rien.
 const VENLAFAXINE_DEFAULT_MG = 37.5;
 // Affichage francais des doses : 37.5 -> "37,5"
 function fmtMg(v){
   return String(v).replace('.', ',');
 }
-// Dose pre-remplie : 0 avant le debut du traitement (retroactif), sinon le reglage de l'appareil.
+
+/* ===== TREAT-PURE-BEGIN ===== Paliers de traitement editables (v1.28.0)
+   state.data.treatments = [{id, date, molecule:'venlafaxine'|'oxazepam'|'autre', name, mg (nombre ou null),
+   note, updated_at, deleted}]. Synchronises. Ils posent les reperes ambres ET pilotent la dose de
+   venlafaxine pre-remplie (dernier palier dont la date <= jour saisi ; aucun palier = 0). */
+const TREATMENT_MOLECULES = {venlafaxine: 'Venlafaxine', oxazepam: 'Oxazépam', autre: 'Autre'};
+const TREATMENT_SEED_STAMP = '2026-10-01T00:00:00.000Z';
+const TREATMENT_SEEDS = [
+  {id: 'seed-venla-2026-08-10', date: '2026-08-10', molecule: 'venlafaxine', name: '', mg: 37.5,  note: '', updated_at: TREATMENT_SEED_STAMP, deleted: false},
+  {id: 'seed-venla-2026-08-15', date: '2026-08-15', molecule: 'venlafaxine', name: '', mg: 75,    note: '', updated_at: TREATMENT_SEED_STAMP, deleted: false},
+  {id: 'seed-venla-2026-09-02', date: '2026-09-02', molecule: 'venlafaxine', name: '', mg: 112.5, note: '', updated_at: TREATMENT_SEED_STAMP, deleted: false},
+  {id: 'seed-venla-2026-09-22', date: '2026-09-22', molecule: 'venlafaxine', name: '', mg: 150,   note: '', updated_at: TREATMENT_SEED_STAMP, deleted: false}
+];
+// Ajoute les paliers d'origine absents (un palier supprime garde son id : il n'est jamais recree)
+function seedTreatments(list){
+  const cur = Array.isArray(list) ? list : [];
+  const ids = {};
+  cur.forEach(t => { if(t && t.id) ids[t.id] = true; });
+  const add = TREATMENT_SEEDS.filter(s => !ids[s.id]).map(s => JSON.parse(JSON.stringify(s)));
+  return {list: cur.concat(add), changed: add.length > 0};
+}
+function activeTreatments(list){
+  return (list || []).filter(t => t && !t.deleted && t.date && TREATMENT_MOLECULES[t.molecule]);
+}
+function treatmentSort(list){
+  return list.slice().sort((x, y) => x.date.localeCompare(y.date) || String(x.id).localeCompare(String(y.id)));
+}
+function treatmentName(t){
+  if(t.molecule === 'autre') return (t.name || '').trim() || 'Repère';
+  return TREATMENT_MOLECULES[t.molecule];
+}
+function treatmentLabel(t, first){
+  const name = treatmentName(t);
+  const low = t.molecule === 'autre' ? name : name.charAt(0).toLowerCase() + name.slice(1);
+  if(typeof t.mg === 'number'){
+    if(t.mg === 0) return 'Arrêt ' + low;
+    return (first && t.molecule !== 'autre' ? 'Début ' + low : name) + ' ' + fmtMg(t.mg) + ' mg';
+  }
+  return name;
+}
+// Reperes ambres (Tendances, Journal)
+function treatmentEvents(list){
+  const seen = {};
+  return treatmentSort(activeTreatments(list)).map(t => {
+    const first = !seen[t.molecule];
+    seen[t.molecule] = true;
+    return {date: t.date, label: treatmentLabel(t, first)};
+  });
+}
+// Dose du palier en vigueur a une date (null si aucun palier de cette molecule avant cette date)
+function treatmentDoseFor(list, molecule, date){
+  let best = null;
+  activeTreatments(list).forEach(t => {
+    if(t.molecule !== molecule || typeof t.mg !== 'number' || t.date > date) return;
+    if(!best || t.date > best.date || (t.date === best.date && (t.updated_at || '') > (best.updated_at || ''))) best = t;
+  });
+  return best ? best.mg : null;
+}
+// Palier en vigueur (objet) a une date
+function treatmentCurrent(list, molecule, date){
+  let best = null;
+  activeTreatments(list).forEach(t => {
+    if(t.molecule !== molecule || typeof t.mg !== 'number' || t.date > date) return;
+    if(!best || t.date > best.date || (t.date === best.date && (t.updated_at || '') > (best.updated_at || ''))) best = t;
+  });
+  return best;
+}
+// Soirs valides dont la dose notee differe du palier en vigueur ce jour-la
+function treatmentDoseMismatches(entries, list, molecule, field){
+  const out = [];
+  (entries || []).forEach(e => {
+    if(!e || !e.evening_done || typeof e[field] !== 'number') return;
+    const exp = treatmentDoseFor(list, molecule, e.date);
+    if(exp === null) return;
+    if(Math.abs(e[field] - exp) > 1e-9) out.push({id: e.id, date: e.date, recorded: e[field], expected: exp});
+  });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+/* ===== TREAT-PURE-END ===== */
+
+// Dose de venlafaxine pre-remplie : palier en vigueur ce jour-la, 0 avant le premier palier.
 function venlafaxineDefaultDose(date){
-  if(date && date < VENLAFAXINE_START) return 0;
-  const def = (state.data && state.data.settings && state.data.settings.defaults) || {};
-  return typeof def.venlafaxine_mg === 'number' ? def.venlafaxine_mg : VENLAFAXINE_DEFAULT_MG;
+  const v = treatmentDoseFor(state.data && state.data.treatments, 'venlafaxine', date || logicalDateStr());
+  return v === null ? 0 : v;
 }
 
 function blankEntry(date){
@@ -1306,6 +1483,7 @@ function blankEntry(date){
     pantoprazole_doses: 0,
     ltyrosine_mg: null, // saisie retiree en v1.19.0, historique conserve
     activities: [],
+    adhoc_persons: [],
     physical_activity: 0,
     social_media_min: 0,
     activities_other: '',
@@ -1928,30 +2106,86 @@ if(step === 'positive_feelings'){
 
   if(step === 'activities'){
     const w = stepWrap(idx, "Activités du jour", "");
-    ACTIVITY_CATEGORIES.forEach(cat => {
+    if(!Array.isArray(d.adhoc_persons)) d.adhoc_persons = [];
+    const pcfg = state.data.persons_config;
+    const CATS = activityCategories();
+    CATS.forEach(cat => {
       const label = document.createElement('div');
       label.className = 'activities-cat-label';
       label.textContent = cat.label;
       w.appendChild(label);
       const chips = document.createElement('div');
       chips.className = 'chips';
-      cat.items.forEach(item => {
-        const c = document.createElement('div');
-        c.className = 'chip' + (d.activities.includes(item) ? ' selected' : '');
-        c.textContent = item;
-        c.onclick = ()=>{
-          const i = d.activities.indexOf(item);
-          if(i >= 0) d.activities.splice(i, 1);
-          else d.activities.push(item);
-          c.classList.toggle('selected');
+      const isPersonsCat = cat.label.indexOf('Personnes') !== -1;
+      const renderChips = () => {
+        chips.innerHTML = '';
+        cat.items.forEach(item => {
+          const c = document.createElement('div');
+          c.className = 'chip' + (d.activities.includes(item) ? ' selected' : '');
+          c.textContent = item;
+          c.onclick = ()=>{
+            const i = d.activities.indexOf(item);
+            if(i >= 0) d.activities.splice(i, 1);
+            else d.activities.push(item);
+            c.classList.toggle('selected');
+          };
+          chips.appendChild(c);
+        });
+        if(!isPersonsCat) return;
+        // Personnes de ce jour hors liste : prenoms retires de la liste, et prenoms ajoutes ponctuellement
+        d.activities.filter(a => cat.items.indexOf(a) === -1 && isPersonTag(a, d, pcfg)).forEach(name => {
+          const c = document.createElement('div');
+          c.className = 'chip selected';
+          c.innerHTML = escapeHtml(name) + ' <span style="margin-left:4px;opacity:.6">×</span>';
+          c.onclick = ()=>{
+            const i = d.activities.indexOf(name);
+            if(i >= 0) d.activities.splice(i, 1);
+            const j = d.adhoc_persons.indexOf(name);
+            if(j >= 0) d.adhoc_persons.splice(j, 1);
+            renderChips();
+          };
+          chips.appendChild(c);
+        });
+        // "+" : prenom pour ce jour seulement (pas ajoute a la liste des prochaines saisies)
+        const plus = document.createElement('div');
+        plus.className = 'chip chip-add';
+        plus.textContent = '+';
+        plus.title = 'Ajouter un prénom pour ce jour';
+        plus.onclick = ()=>{
+          plus.remove();
+          const box = document.createElement('div');
+          box.style.cssText = 'display:flex;gap:6px;width:100%;margin-top:4px';
+          const pin = document.createElement('input');
+          pin.type = 'text';
+          pin.placeholder = 'Prénom (pour ce jour)';
+          pin.style.flex = '1';
+          const ok = document.createElement('button');
+          ok.className = 'btn btn-secondary';
+          ok.style.cssText = 'padding:8px 14px;font-size:14px;min-height:0';
+          ok.textContent = 'OK';
+          const commit = ()=>{
+            const name = pin.value.trim();
+            if(name && !d.activities.includes(name)){
+              d.activities.push(name);
+              if(knownPersons(pcfg).indexOf(name) === -1 && d.adhoc_persons.indexOf(name) === -1) d.adhoc_persons.push(name);
+            }
+            renderChips();
+          };
+          ok.onclick = commit;
+          pin.addEventListener('keydown', ev=>{ if(ev.key === 'Enter'){ ev.preventDefault(); commit(); } });
+          box.appendChild(pin);
+          box.appendChild(ok);
+          chips.appendChild(box);
+          pin.focus();
         };
-        chips.appendChild(c);
-      });
+        chips.appendChild(plus);
+      };
+      renderChips();
       w.appendChild(chips);
     });
     // Tags personnalisés (même système que les ressentis positifs).
     // Les activités hors catégories (y compris l'ancien champ à virgules) apparaissent ici.
-    const PREDEF_ACTIVITIES = ACTIVITY_CATEGORIES.flatMap(c => c.items);
+    const PREDEF_ACTIVITIES = CATS.flatMap(c => c.items).concat(knownPersons(pcfg), d.adhoc_persons);
     const otherLabel = document.createElement('div');
     otherLabel.className = 'activities-cat-label';
     otherLabel.textContent = 'Autre';
@@ -2732,7 +2966,7 @@ function journalDayAnnotations(dateStr){
   // d'échelle) et les paliers paroxétine "1 jour sur 2", jugés hors journal par Julien.
   const evts = tendTaperEvents(paroxTaper)
     .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
-    .concat(tendVenlafaxineEvents(VENLAFAXINE_EVENTS));
+    .concat(treatmentEvents(state.data.treatments));
   const labels = evts
     .filter(ev => ev && ev.date === dateStr)
     .map(ev => ev.label)
@@ -2763,6 +2997,23 @@ function journalTexts(e){
 
   if(html === '') html = '<div class="journal-empty">Rien d\'écrit ce jour.</div>';
   return '<div class="journal-texts">' + banner + html + '</div>';
+}
+
+// Bulles de fin de journee : activites, personnes, ressentis positifs, ressentis negatifs
+function journalTags(e){
+  const cfg = state.data.persons_config;
+  const acts = e.activities || [];
+  const persons = acts.filter(a => isPersonTag(a, e, cfg));
+  const others = acts.filter(a => !isPersonTag(a, e, cfg));
+  const pos = (e.positive_feelings || []).map(k => POSITIVE_FEELING_LABELS[k] || k);
+  const neg = (e.side_effects || []).map(k => k === 'autre' ? (e.side_effects_other || 'autre') : (SIDE_EFFECT_LABELS[k] || k));
+  const group = (title, items, cls) => items.length
+    ? '<div><div class="journal-tag-title">' + title + '</div><div class="journal-tags">'
+      + items.map(t => '<span class="jtag ' + cls + '">' + escapeHtml(t) + '</span>').join('') + '</div></div>'
+    : '';
+  const html = group('Activités', others, 'jtag-act') + group('Personnes', persons, 'jtag-person')
+    + group('Ressentis positifs', pos, 'jtag-pos') + group('Ressentis négatifs', neg, 'jtag-neg');
+  return html ? '<div class="journal-tagsblock">' + html + '</div>' : '';
 }
 
 function goJournalDay(dateStr){
@@ -2805,6 +3056,7 @@ function renderJournal(){
     '<div class="journal-date">' + escapeHtml(journalFullDate(e.date)) + '</div>'
     + journalChips(e)
     + journalTexts(e)
+    + journalTags(e)
     + '<div class="journal-edit"><button class="btn btn-secondary journal-edit-btn" onclick="showEditDay(\'' + e.id + '\', \'journal\')">Éditer ce jour</button></div>'
     // Barre basse : précédent / suivant seulement (pas de "plus récent"), pour naviguer sans remonter
     + '<div class="journal-topbar journal-bottombar">' + prevBtn + nextBtn + '</div>';
@@ -3354,14 +3606,6 @@ function tendMianserineTaperEvents(taper){
   }));
 }
 
-// Repères des paliers de venlafaxine (source unique VENLAFAXINE_EVENTS).
-function tendVenlafaxineEvents(plan){
-  return (plan || []).filter(t => t && t.from).map((t, i) => ({
-    date: t.from,
-    label: t.mg === 0 ? 'Arrêt venlafaxine' : (i === 0 ? 'Début venlafaxine ' : 'Venlafaxine ') + fmtMg(t.mg) + ' mg'
-  }));
-}
-
 // Reformulations de questions/échelles (audit décision 1 : annoter les changements de formulation)
 const TEND_SCALE_EVENTS = [
   {date: '2026-06-11', label: 'Reformulation humeur'},
@@ -3454,7 +3698,7 @@ function renderTendances(c, entries){
   const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
   const events = tendTaperEvents(taper)
     .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
-    .concat(tendVenlafaxineEvents(VENLAFAXINE_EVENTS))
+    .concat(treatmentEvents(state.data.treatments))
     .filter(ev => ev.date >= from && ev.date <= today);
   const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
 
@@ -4586,10 +4830,13 @@ function renderSettings(){
   // Defaults display
   const dd = document.getElementById('defaults-display');
   const def = state.data.settings.defaults;
+  const curVenla = treatmentCurrent(state.data.treatments, 'venlafaxine', logicalDateStr());
   dd.innerHTML = `
-    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Venlafaxine : <strong style="color:var(--text)">${fmtMg(def.venlafaxine_mg ?? VENLAFAXINE_DEFAULT_MG)} mg</strong></div>
+    <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Venlafaxine : <strong style="color:var(--text)">${curVenla ? fmtMg(curVenla.mg) + ' mg' : 'aucun palier'}</strong>${curVenla ? ' <span style="font-size:12px;color:var(--text-faint)">(palier du ' + escapeHtml(formatDate(curVenla.date)) + ', voir Traitements)</span>' : ''}</div>
     <div style="font-size:13px;color:var(--text-dim);margin:6px 0">Oxazépam : <strong style="color:var(--text)">${def.oxazepam_mg} mg</strong></div>
   `;
+  renderTreatmentsSettings();
+  renderPersonsSettings();
 
   // Notif button
   const notifBtn = document.getElementById('btn-toggle-notif');
@@ -4642,11 +4889,7 @@ function editDefaults(){
   const def = state.data.settings.defaults;
   const html = `
     <h3>Doses par défaut</h3>
-    <p>Valeurs pré-remplies à chaque nouvelle saisie.</p>
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--text-faint)">Venlafaxine (mg)</label>
-      <input type="number" id="def-venla" value="${def.venlafaxine_mg ?? VENLAFAXINE_DEFAULT_MG}" min="0" step="37.5">
-    </div>
+    <p>Valeurs pré-remplies à chaque nouvelle saisie. La venlafaxine suit les paliers de la section Traitements.</p>
     <div style="margin-bottom:18px">
       <label style="font-size:12px;color:var(--text-faint)">Oxazépam (mg)</label>
       <input type="number" id="def-oxa" value="${def.oxazepam_mg}" min="0" step="5">
@@ -4660,12 +4903,226 @@ function editDefaults(){
 }
 
 window.saveDefaults = async function(){
-  state.data.settings.defaults.venlafaxine_mg = parseFloat(document.getElementById('def-venla').value)||0;
   state.data.settings.defaults.oxazepam_mg = parseFloat(document.getElementById('def-oxa').value)||0;
   await saveData();
   closeModal();
   renderSettings();
   toast('Réglages enregistrés.', 'success');
+};
+
+/* ============================================================
+   REGLAGES : PALIERS DE TRAITEMENT (v1.28.0)
+   ============================================================ */
+const ALIGN_BACKUP_KEY = 'tracker_backup_before_align';
+
+function renderTreatmentsSettings(){
+  const box = document.getElementById('treatments-list');
+  if(!box) return;
+  const list = treatmentSort(activeTreatments(state.data.treatments)).reverse();
+  if(list.length === 0){
+    box.innerHTML = '<div style="font-size:13px;color:var(--text-faint)">Aucun palier.</div>';
+  } else {
+    const firsts = {};
+    treatmentSort(activeTreatments(state.data.treatments)).forEach(t => { if(!firsts[t.molecule]) firsts[t.molecule] = t.id; });
+    box.innerHTML = list.map(t => '<div class="tr-row"><div class="tr-main">'
+      + '<strong>' + escapeHtml(treatmentLabel(t, firsts[t.molecule] === t.id)) + '</strong>'
+      + '<span>' + escapeHtml(formatDate(t.date)) + ' ' + t.date.slice(0, 4) + (t.note ? ' · ' + escapeHtml(t.note) : '') + '</span>'
+      + '</div><div class="tr-actions">'
+      + '<button class="btn btn-secondary" onclick="editTreatment(\'' + escapeHtml(t.id) + '\')">Modifier</button>'
+      + '<button class="btn btn-secondary" onclick="askDeleteTreatment(\'' + escapeHtml(t.id) + '\')">Suppr.</button>'
+      + '</div></div>').join('')
+      + '<div style="font-size:11px;color:var(--text-faint);margin-top:8px">Les repères historiques de paroxétine et de miansérine restent affichés, ils ne sont pas modifiables ici.</div>';
+  }
+  renderDoseCheck();
+}
+
+// Controle des doses passees : liste les soirs dont la dose de venlafaxine differe du palier
+function renderDoseCheck(){
+  const box = document.getElementById('treatments-check');
+  if(!box) return;
+  const mm = treatmentDoseMismatches(state.data.entries, state.data.treatments, 'venlafaxine', 'venlafaxine_mg');
+  let undo = null;
+  try{ undo = JSON.parse(localStorage.getItem(ALIGN_BACKUP_KEY)); }catch(e){ undo = null; }
+  const undoBtn = (undo && Array.isArray(undo.changes) && undo.changes.length)
+    ? '<button class="btn btn-secondary" style="margin-top:8px;padding:6px 10px;font-size:12px;min-height:0" onclick="undoAlignDoses()">Annuler le dernier alignement (' + undo.changes.length + ' jour' + (undo.changes.length > 1 ? 's' : '') + ')</button>'
+    : '';
+  if(mm.length === 0){
+    box.innerHTML = '<div class="tr-check ok">Toutes les doses de venlafaxine saisies correspondent aux paliers.</div>' + undoBtn;
+    return;
+  }
+  box.innerHTML = '<div class="tr-check warn"><strong>' + mm.length + ' jour' + (mm.length > 1 ? 's ont' : ' a') + ' une dose de venlafaxine différente du palier.</strong>'
+    + '<ul>' + mm.map(m => '<li>' + escapeHtml(formatDate(m.date)) + ' : noté ' + fmtMg(m.recorded) + ' mg, palier ' + fmtMg(m.expected) + ' mg</li>').join('') + '</ul>'
+    + '<button class="btn btn-primary" style="padding:8px 14px;font-size:13px;min-height:0" onclick="alignDoses()">Aligner ' + (mm.length > 1 ? 'ces ' + mm.length + ' jours' : 'ce jour') + '</button>'
+    + '</div>' + undoBtn;
+}
+
+window.alignDoses = async function(){
+  const mm = treatmentDoseMismatches(state.data.entries, state.data.treatments, 'venlafaxine', 'venlafaxine_mg');
+  if(mm.length === 0){ renderDoseCheck(); return; }
+  const now = new Date().toISOString();
+  const changes = [];
+  mm.forEach(m => {
+    const e = state.data.entries.find(x => x.id === m.id);
+    if(!e) return;
+    changes.push({id: e.id, date: e.date, from: e.venlafaxine_mg, to: m.expected});
+    e.venlafaxine_mg = m.expected;
+    e.evening_updated_at = now; // pour que la correction gagne aussi sur l'autre appareil
+  });
+  try{ localStorage.setItem(ALIGN_BACKUP_KEY, JSON.stringify({saved_at: now, changes: changes})); }catch(e){}
+  await saveData();
+  renderDoseCheck();
+  toast(changes.length + ' jour' + (changes.length > 1 ? 's alignés.' : ' aligné.'), 'success');
+};
+
+window.undoAlignDoses = async function(){
+  let undo = null;
+  try{ undo = JSON.parse(localStorage.getItem(ALIGN_BACKUP_KEY)); }catch(e){ undo = null; }
+  if(!undo || !Array.isArray(undo.changes)) return;
+  const now = new Date().toISOString();
+  let n = 0;
+  undo.changes.forEach(c => {
+    const e = state.data.entries.find(x => x.id === c.id);
+    if(!e) return;
+    e.venlafaxine_mg = c.from;
+    e.evening_updated_at = now;
+    n++;
+  });
+  try{ localStorage.removeItem(ALIGN_BACKUP_KEY); }catch(e){}
+  await saveData();
+  renderDoseCheck();
+  toast(n + ' jour' + (n > 1 ? 's remis' : ' remis') + ' comme avant.', 'success');
+};
+
+function treatmentForm(t){
+  const mol = t ? t.molecule : 'venlafaxine';
+  const opt = (v, l) => '<option value="' + v + '"' + (mol === v ? ' selected' : '') + '>' + l + '</option>';
+  const lab = 'font-size:12px;color:var(--text-faint)';
+  return '<h3>' + (t ? 'Modifier le palier' : 'Nouveau palier') + '</h3>'
+    + '<div style="margin-bottom:12px"><label style="' + lab + '">Date</label><input type="date" id="tr-date" value="' + escapeHtml(t ? t.date : logicalDateStr()) + '"></div>'
+    + '<div style="margin-bottom:12px"><label style="' + lab + '">Molécule</label><select id="tr-mol">' + opt('venlafaxine', 'Venlafaxine') + opt('oxazepam', 'Oxazépam') + opt('autre', 'Autre') + '</select></div>'
+    + '<div style="margin-bottom:12px;display:' + (mol === 'autre' ? 'block' : 'none') + '" id="tr-name-wrap"><label style="' + lab + '">Nom</label><input type="text" id="tr-name" value="' + escapeHtml(t && t.name ? t.name : '') + '" placeholder="Molécule ou repère"></div>'
+    + '<div style="margin-bottom:12px"><label style="' + lab + '">Dose (mg)<span id="tr-dose-hint">' + (mol === 'autre' ? ', facultative' : ', 0 = arrêt') + '</span></label><input type="number" id="tr-mg" min="0" step="any" value="' + (t && typeof t.mg === 'number' ? t.mg : '') + '"></div>'
+    + '<div style="margin-bottom:18px"><label style="' + lab + '">Note (facultative)</label><input type="text" id="tr-note" value="' + escapeHtml(t && t.note ? t.note : '') + '"></div>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
+    + '<button class="btn btn-primary" onclick="saveTreatment(' + (t ? '\'' + escapeHtml(t.id) + '\'' : 'null') + ')">Enregistrer</button></div>';
+}
+function openTreatmentModal(t){
+  showModal(treatmentForm(t));
+  const sel = document.getElementById('tr-mol');
+  if(sel) sel.onchange = ()=>{
+    const autre = sel.value === 'autre';
+    document.getElementById('tr-name-wrap').style.display = autre ? 'block' : 'none';
+    document.getElementById('tr-dose-hint').textContent = autre ? ', facultative' : ', 0 = arrêt';
+  };
+}
+window.editTreatment = function(id){
+  const t = (state.data.treatments || []).find(x => x.id === id && !x.deleted);
+  if(t) openTreatmentModal(t);
+};
+window.saveTreatment = async function(id){
+  const date = document.getElementById('tr-date').value;
+  const molecule = document.getElementById('tr-mol').value;
+  const name = document.getElementById('tr-name').value.trim();
+  const mgRaw = document.getElementById('tr-mg').value.trim().replace(',', '.');
+  const note = document.getElementById('tr-note').value.trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ toast('Date invalide.', 'error'); return; }
+  let mg = null;
+  if(mgRaw !== ''){
+    mg = parseFloat(mgRaw);
+    if(isNaN(mg) || mg < 0){ toast('Dose invalide.', 'error'); return; }
+  }
+  if(molecule !== 'autre' && mg === null){ toast('Indique la dose (0 pour un arrêt).', 'error'); return; }
+  if(molecule === 'autre' && !name){ toast('Indique un nom.', 'error'); return; }
+  if(!Array.isArray(state.data.treatments)) state.data.treatments = [];
+  const now = new Date().toISOString();
+  const rec = {id: id || ('tr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)), date: date, molecule: molecule,
+    name: molecule === 'autre' ? name : '', mg: mg, note: note, updated_at: now, deleted: false};
+  const i = state.data.treatments.findIndex(x => x.id === rec.id);
+  if(i >= 0) state.data.treatments[i] = rec; else state.data.treatments.push(rec);
+  await saveData();
+  closeModal();
+  renderSettings();
+  toast('Palier enregistré.', 'success');
+};
+window.askDeleteTreatment = function(id){
+  const t = (state.data.treatments || []).find(x => x.id === id && !x.deleted);
+  if(!t) return;
+  showModal('<h3>Supprimer ce palier ?</h3><p>' + escapeHtml(treatmentLabel(t, false)) + ', ' + escapeHtml(formatDate(t.date)) + '. Il disparaîtra aussi de tes autres appareils.</p>'
+    + '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>'
+    + '<button class="btn btn-primary" onclick="deleteTreatment(\'' + escapeHtml(id) + '\')">Supprimer</button></div>');
+};
+window.deleteTreatment = async function(id){
+  const t = (state.data.treatments || []).find(x => x.id === id);
+  if(!t) return;
+  t.deleted = true;
+  t.updated_at = new Date().toISOString(); // la suppression gagne sur l'autre appareil
+  await saveData();
+  closeModal();
+  renderSettings();
+  toast('Palier supprimé.', 'success');
+};
+
+/* ============================================================
+   REGLAGES : PRENOMS PROPOSES (v1.28.0)
+   ============================================================ */
+function renderPersonsSettings(){
+  const box = document.getElementById('persons-config');
+  if(!box) return;
+  const c = personsCfg(state.data.persons_config);
+  const rows = c.active.map((name, i) => '<div class="pc-row"><span class="pc-name">' + escapeHtml(name) + '</span><div class="pc-actions">'
+    + '<button class="btn btn-secondary" ' + (i === 0 ? 'disabled' : '') + ' onclick="movePerson(' + i + ',-1)" aria-label="Monter">↑</button>'
+    + '<button class="btn btn-secondary" ' + (i === c.active.length - 1 ? 'disabled' : '') + ' onclick="movePerson(' + i + ',1)" aria-label="Descendre">↓</button>'
+    + '<button class="btn btn-secondary" onclick="retirePerson(' + i + ')" aria-label="Retirer">✕</button>'
+    + '</div></div>').join('');
+  const retired = c.retired.length
+    ? '<div style="font-size:12px;color:var(--text-faint);margin-top:12px">Retirés : '
+      + c.retired.map((name, i) => escapeHtml(name) + ' <a href="#" style="color:var(--teal)" onclick="restorePerson(' + i + ');return false">remettre</a>').join(' · ')
+      + '</div>'
+    : '';
+  box.innerHTML = rows
+    + '<div style="display:flex;gap:8px;margin-top:12px"><input type="text" id="pc-new" placeholder="Nouveau prénom" style="flex:1">'
+    + '<button class="btn btn-secondary" style="padding:10px 16px;font-size:14px;white-space:nowrap" onclick="addPerson()">+ Ajouter</button></div>'
+    + retired;
+  const inp = document.getElementById('pc-new');
+  if(inp) inp.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addPerson(); } });
+}
+async function savePersonsCfg(c){
+  state.data.persons_config = {active: c.active, retired: c.retired, updated_at: new Date().toISOString()};
+  await saveData();
+  renderPersonsSettings();
+}
+window.movePerson = function(i, dir){
+  const c = personsCfg(state.data.persons_config);
+  const a = c.active.slice(), j = i + dir;
+  if(j < 0 || j >= a.length) return;
+  const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+  savePersonsCfg({active: a, retired: c.retired.slice()});
+};
+window.retirePerson = function(i){
+  const c = personsCfg(state.data.persons_config);
+  const a = c.active.slice(), r = c.retired.slice();
+  const name = a.splice(i, 1)[0];
+  if(name && r.indexOf(name) === -1) r.push(name);
+  savePersonsCfg({active: a, retired: r});
+};
+window.restorePerson = function(i){
+  const c = personsCfg(state.data.persons_config);
+  const a = c.active.slice(), r = c.retired.slice();
+  const name = r.splice(i, 1)[0];
+  if(name && a.indexOf(name) === -1) a.push(name);
+  savePersonsCfg({active: a, retired: r});
+};
+window.addPerson = function(){
+  const inp = document.getElementById('pc-new');
+  const name = inp ? inp.value.trim() : '';
+  if(!name) return;
+  const c = personsCfg(state.data.persons_config);
+  const a = c.active.slice(), r = c.retired.slice();
+  if(a.indexOf(name) !== -1){ toast('Ce prénom est déjà dans la liste.', 'error'); return; }
+  const k = r.indexOf(name);
+  if(k !== -1) r.splice(k, 1);
+  a.push(name);
+  savePersonsCfg({active: a, retired: r});
 };
 
 /* ============================================================
@@ -4682,7 +5139,9 @@ function exportJSON(){
     deleted_days: state.data.deleted_days || [],
     quicknotes: state.data.quicknotes || [],
     quicknotes_cleared_at: state.data.quicknotes_cleared_at || '',
-    pending_bedtime: state.data.pending_bedtime || null
+    pending_bedtime: state.data.pending_bedtime || null,
+    treatments: state.data.treatments || [],
+    persons_config: state.data.persons_config || null
   };
   const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type:'application/json'});
   download(blob, `tracker-export-${todayStr()}.json`);
@@ -4690,7 +5149,7 @@ function exportJSON(){
 }
 
 function exportCSV(){
-  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','adhoc_persons','activities_other','activities_note','notable_event','notable_event_text','free_note'];
   const header = cols.join(';');
   const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
     cols.map(c => csvEscape(e[c])).join(';')
@@ -4805,6 +5264,8 @@ async function importJSON(file){
     if(Array.isArray(obj.quicknotes)) state.data.quicknotes = obj.quicknotes;
     if(typeof obj.quicknotes_cleared_at === 'string') state.data.quicknotes_cleared_at = obj.quicknotes_cleared_at;
     state.data.pending_bedtime = obj.pending_bedtime || null;
+    if(Array.isArray(obj.treatments)) state.data.treatments = obj.treatments;
+    if(obj.persons_config !== undefined) state.data.persons_config = obj.persons_config || null;
     if(obj.settings) state.data.settings = obj.settings;
     await saveData();
     toast('Import réussi.', 'success');
@@ -4846,9 +5307,11 @@ function exportPDF(){
     : '<span style="color:#aaa">—</span>';
 
   // --- Classification activités : social vs activités ---
-  const PERSONS_LIST = ACTIVITY_CATEGORIES.find(cat => cat.label.indexOf('Personnes') !== -1).items; // source unique (audit n.1)
+  // Personnes : liste courante + prenoms retires + prenoms ajoutes ponctuellement (v1.28.0)
+  const PERSON_NAMES = new Set(knownPersons(state.data.persons_config));
+  entries.forEach(e => (e.adhoc_persons || []).forEach(nm => PERSON_NAMES.add(nm)));
   const SOCIAL_TAGS  = ['Musique Fun Partagée','Stream','Jeu Vidéo Co-Op','Cours / Atelier','Concert'];
-  const isSocial     = (a) => PERSONS_LIST.includes(a) || SOCIAL_TAGS.includes(a);
+  const isSocial     = (a) => PERSON_NAMES.has(a) || SOCIAL_TAGS.includes(a);
 
   // --- Idéations globales ---
   const idCounts = {aucune:0,fugaces:0,presentes:0,intenses:0};
@@ -4870,7 +5333,7 @@ function exportPDF(){
   entries.forEach(e=>{ (e.activities||[]).forEach(a=>{ if(isSocial(a)) socCounts[a]=(socCounts[a]||0)+1; else actCounts[a]=(actCounts[a]||0)+1; }); });
   const topAct = Object.entries(actCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
   // Partie 1 : Vie sociale = personnes uniquement
-  const topSoc = Object.entries(socCounts).filter(([k])=>PERSONS_LIST.includes(k)).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const topSoc = Object.entries(socCounts).filter(([k])=>PERSON_NAMES.has(k)).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
   // --- Alcool et L-Tyrosine (moyennes/mode) ---
   const avgAlcohol = () => { const vals = entries.map(e=>e.alcohol_units).filter(v=>typeof v==='number'&&v>0); if(!vals.length) return '0'; return (vals.reduce((a,b)=>a+b)/entries.length).toFixed(2); };
@@ -5450,8 +5913,8 @@ function syncEnabled(){ return !!syncConfig().token; }
 /* Donnees synchronisees : entrees + suppressions + quicknotes. Les settings restent locaux. */
 function syncPayloadFromData(d){
   return mergeTrackerData(
-    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || '', pending_bedtime: d.pending_bedtime || null},
-    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: '', pending_bedtime: null}
+    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || '', pending_bedtime: d.pending_bedtime || null, treatments: d.treatments || [], persons_config: d.persons_config || null},
+    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: '', pending_bedtime: null, treatments: [], persons_config: null}
   );
 }
 
@@ -5559,6 +6022,8 @@ async function syncNow(manual){
       state.data.quicknotes = merged.quicknotes;
       state.data.quicknotes_cleared_at = merged.quicknotes_cleared_at;
       state.data.pending_bedtime = merged.pending_bedtime || null;
+      state.data.treatments = merged.treatments || [];
+      state.data.persons_config = merged.persons_config || null;
       _suppressSyncSchedule = true;
       try{ saveData(); } finally { _suppressSyncSchedule = false; }
       refreshAfterSync();
@@ -5707,6 +6172,7 @@ function init(){
     renderHistoryView();
   });
   document.getElementById('btn-edit-defaults').addEventListener('click', editDefaults);
+  document.getElementById('btn-add-treatment').addEventListener('click', () => openTreatmentModal(null));
   document.getElementById('btn-export-pdf').addEventListener('click', exportPDF);
   document.getElementById('btn-toggle-notif').addEventListener('click', toggleNotifications);
   document.getElementById('btn-export-json').addEventListener('click', exportJSON);
