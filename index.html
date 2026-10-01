@@ -222,6 +222,13 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .tend-block{margin-bottom:14px}
 .tend-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .tend-events{font-size:11px;color:var(--amber);margin:2px 0 12px;display:flex;flex-wrap:wrap;gap:3px 14px}
+.tend-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.tend-toolbar .heatmap-metric-selector{margin-bottom:0}
+.tend-pick-btn{padding:7px 13px;font-size:12px;min-height:0}
+.ovl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.chart-wrap.ovl{height:320px}
+.tend-pick-list label{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:14px;color:var(--text);border-bottom:1px solid var(--border)}
+.tend-pick-list label:last-child{border-bottom:none}
 .tend-events span{white-space:nowrap}
 
 /* heatmap */
@@ -519,6 +526,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     <div class="stats-tabs" id="stats-tabs">
       <button class="stats-tab active" data-tab="bilan">Bilan</button>
       <button class="stats-tab" data-tab="trends">Tendances</button>
+      <button class="stats-tab" data-tab="overlay">Superposer</button>
       <button class="stats-tab" data-tab="explore">Explorer</button>
       <button class="stats-tab" data-tab="side_effects">Ressentis nég.</button>
       <button class="stats-tab" data-tab="positive_feelings">Ress. pos.</button>
@@ -637,7 +645,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.28.0';
+const VERSION = '1.29.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -651,7 +659,7 @@ const state = {
   editingEntryId: null,
   singleStepEdit: false,
   statsTab: 'bilan',
-  tendPeriod: 30, // Tendances : 30/90/180 jours, 0 = tout
+  tendPeriod: 30, // Tendances et Superposer : 7/14/30/90/180 jours, 0 = tout
   exploreView: 'days', // Explorer : days/heatmap/weekly/activities_impact/corr_short
   feelPeriod: 30, // Ressentis : 30/90 jours, 0 = tout
   heatmapOrder: 'desc', // Heatmap : 'desc' = mois en cours d'abord, 'asc' = chronologique
@@ -3300,6 +3308,7 @@ function renderStats(){
 
   if(state.statsTab === 'bilan') renderBilan(c, entries);
   else if(state.statsTab === 'trends') renderTendances(c, entries);
+  else if(state.statsTab === 'overlay') renderOverlay(c, entries);
   else if(state.statsTab === 'explore') renderExplorer(c, entries);
   else if(state.statsTab === 'curves') renderCurves(c, entries);
   else if(state.statsTab === 'heatmap') renderHeatmap(c, entries);
@@ -3624,20 +3633,99 @@ function tendGetBlunting(e){ return (e.evening_done && typeof e.blunting === 'nu
 function tendGetSleepHours(e){ const m = bilanGetSleepMin(e); return m === null ? null : m / 60; }
 function tendGetWeight(e){ return (e.morning_done && typeof e.weight_kg === 'number') ? e.weight_kg : null; }
 function tendGetSleepQuality(e){ return (e.morning_done && typeof e.sleep_quality === 'number') ? e.sleep_quality : null; }
+
+// v1.29.0 : nouveaux extracteurs (soir valide obligatoire, comme les autres)
+const TEND_LIBIDO_SCORE = {absente: 0, diminuee: 1, normale: 2, exacerbee: 3};
+const TEND_SUICIDAL_SCORE = {aucune: 0, fugaces: 1, presentes: 2, intenses: 3};
+function tendGetVenla(e){ return (e.evening_done && typeof e.venlafaxine_mg === 'number') ? e.venlafaxine_mg : null; }
+function tendGetOxa(e){ return (e.evening_done && typeof e.oxazepam_mg === 'number') ? e.oxazepam_mg : null; }
+function tendGetLibido(e){ return (e.evening_done && Object.prototype.hasOwnProperty.call(TEND_LIBIDO_SCORE, e.libido)) ? TEND_LIBIDO_SCORE[e.libido] : null; }
+function tendGetSuicidal(e){ return (e.evening_done && Object.prototype.hasOwnProperty.call(TEND_SUICIDAL_SCORE, e.suicidal)) ? TEND_SUICIDAL_SCORE[e.suicidal] : null; }
+function tendGetPhysical(e){ return (e.evening_done && typeof e.physical_activity === 'number') ? e.physical_activity : null; }
+function tendGetSocialHours(e){ return (e.evening_done && typeof e.social_media_min === 'number') ? e.social_media_min / 60 : null; }
+function tendGetCafes(e){ return (e.evening_done && typeof e.cafes_count === 'number') ? e.cafes_count : null; }
+function tendGetAlcohol(e){ return (e.evening_done && typeof e.alcohol_units === 'number') ? e.alcohol_units : null; }
+function tendGetOnan(e){ return (e.evening_done && typeof e.onan_count === 'number') ? e.onan_count : null; }
+
+// Série brute + moyenne 7 j sur l'axe de la période. La moyenne est calculée sur un axe élargi de
+// `lookback` jours avant la période puis tronquée : en vue 7 ou 14 jours, elle démarre dès le 1er jour.
+function tendSeriesWithAvg(entries, getter, dates, lookback){
+  if(!dates.length) return {raw: [], avg: []};
+  const ext = lookback ? tendDateAxis(bilanAddDays(dates[0], -lookback), dates[dates.length - 1]) : dates;
+  const rawExt = tendSeries(entries, getter, ext);
+  const avgExt = tendMovingAvg(rawExt, 7, 3);
+  const cut = ext.length - dates.length;
+  return {raw: rawExt.slice(cut), avg: avgExt.slice(cut)};
+}
+
+// Onglet Superposer : chaque courbe est ramenée à 0-100 sur l'échelle de SA métrique,
+// élargie si une valeur réelle la dépasse (jamais de valeur hors cadre).
+function tendNormRange(values, yMin, yMax){
+  let lo = yMin, hi = yMax;
+  values.forEach(v => { if(v === null) return; if(v < lo) lo = v; if(v > hi) hi = v; });
+  if(hi === lo) hi = lo + 1;
+  return {lo: lo, hi: hi};
+}
+function tendNormalize(values, range){
+  return values.map(v => v === null ? null : Math.round(((v - range.lo) / (range.hi - range.lo)) * 1000) / 10);
+}
 /* ===== TEND-PURE-END ===== */
 
 /* ===== Onglet Tendances : rendu (petits multiples) ===== */
 
+// Formats d'affichage des valeurs au toucher (isAvg : valeur moyennée, donc décimale)
+const TEND_FMT = {
+  num:    (v) => (Math.round(v * 10) / 10).toString().replace('.', ','),
+  hours:  (v) => { const t = Math.round(v * 60); return Math.floor(t / 60) + ' h ' + String(t % 60).padStart(2, '0'); },
+  kg:     (v) => v.toFixed(1).replace('.', ',') + ' kg',
+  mg:     (v) => fmtMg(Math.round(v * 10) / 10) + ' mg',
+  scale:  (labels) => (v, isAvg) => isAvg ? TEND_FMT.num(v) + ' / 3' : (labels[Math.round(v)] || TEND_FMT.num(v))
+};
 const TEND_METRICS = [
-  {key:'mood',    label:'Humeur',                    color:'#4ecdc4', getter: bilanGetMood,     yMin:0,  yMax:10},
-  {key:'anxiety', label:'Anxiété',                   color:'#e74c3c', getter: bilanGetAnxiety,  yMin:0,  yMax:10},
-  {key:'energy',  label:'Énergie',                   color:'#9b6dff', getter: tendGetEnergy,    yMin:0,  yMax:10},
-  {key:'sleep',   label:'Sommeil (durée, h)',        color:'#f5a623', getter: tendGetSleepHours, yMin:3, yMax:13},
-  {key:'sleepq',  label:'Sommeil (qualité, 0-10)',   color:'#5dbb63', getter: tendGetSleepQuality, yMin:0, yMax:10},
-  {key:'fog',     label:'Brouillard',                color:'#7a92aa', getter: tendGetFog,       yMin:0,  yMax:10},
-  {key:'blunt',   label:'Attachement (-5/+5)',       color:'#6b7785', getter: tendGetBlunting,  yMin:-5, yMax:5},
-  {key:'weight',  label:'Poids (kg)',                color:'#4a9eff', getter: tendGetWeight,    yMin:60, yMax:85, connect:true}
+  {key:'mood',     label:'Humeur',                         color:'#4ecdc4', getter: bilanGetMood,        yMin:0,  yMax:10},
+  {key:'anxiety',  label:'Anxiété',                        color:'#e74c3c', getter: bilanGetAnxiety,     yMin:0,  yMax:10},
+  {key:'energy',   label:'Énergie',                        color:'#9b6dff', getter: tendGetEnergy,       yMin:0,  yMax:10},
+  {key:'sleep',    label:'Sommeil (durée, h)',             short:'Sommeil durée',   color:'#f5a623', getter: tendGetSleepHours,   yMin:3,  yMax:13, fmt: (v) => TEND_FMT.hours(v)},
+  {key:'sleepq',   label:'Sommeil (qualité, 0-10)',        short:'Sommeil qualité', color:'#5dbb63', getter: tendGetSleepQuality, yMin:0,  yMax:10},
+  {key:'fog',      label:'Brouillard',                     color:'#7a92aa', getter: tendGetFog,          yMin:0,  yMax:10},
+  {key:'blunt',    label:'Attachement (-5/+5)',            color:'#8a96a3', getter: tendGetBlunting,     yMin:-5, yMax:5},
+  {key:'libido',   label:'Libido (0 absente, 3 exacerbée)', color:'#e08cf2', getter: tendGetLibido,      yMin:0,  yMax:3, step:1, fmt: TEND_FMT.scale(['Absente','Diminuée','Normale','Exacerbée'])},
+  {key:'suicidal', label:'Idéations (0 aucune, 3 intenses)', color:'#ff9f43', getter: tendGetSuicidal,   yMin:0,  yMax:3, step:1, fmt: TEND_FMT.scale(['Aucune','Fugaces','Présentes','Intenses'])},
+  {key:'physical', label:'Activité physique (0 sédentaire, 3 cardio)', color:'#a3d65c', getter: tendGetPhysical, yMin:0, yMax:3, step:1, fmt: TEND_FMT.scale(['Sédentaire','Légèrement actif','Actif','Cardio'])},
+  {key:'social',   label:'Réseaux sociaux (h)',            color:'#7c8cff', getter: tendGetSocialHours,  yMin:0,  yMax:3, fmt: (v) => TEND_FMT.hours(v)},
+  {key:'venla',    label:'Venlafaxine (mg)',               color:'#ff6fae', getter: tendGetVenla,        yMin:0,  yMax:150, alwaysRaw:true, stepped:true, fmt: (v) => TEND_FMT.mg(v)},
+  {key:'oxa',      label:'Oxazépam (mg)',                  color:'#36c2f0', getter: tendGetOxa,          yMin:0,  yMax:10,  alwaysRaw:true, fmt: (v) => TEND_FMT.mg(v)},
+  {key:'weight',   label:'Poids (kg)',                     color:'#4a9eff', getter: tendGetWeight,       yMin:60, yMax:85, connect:true, fmt: (v) => TEND_FMT.kg(v)}
 ];
+// Paramètres proposés en plus dans l'onglet Superposer
+const TEND_EXTRA_METRICS = [
+  {key:'cafes',    label:'Cafés',                          color:'#c49a6c', getter: tendGetCafes,        yMin:0,  yMax:4},
+  {key:'alcohol',  label:'Alcool (verres)',                color:'#d35d6e', getter: tendGetAlcohol,      yMin:0,  yMax:4},
+  {key:'onan',     label:'Onan.',                          color:'#b0bec5', getter: tendGetOnan,         yMin:0,  yMax:3}
+];
+function tendShort(m){ return m.short || m.label.replace(/ \(.*\)$/, ''); }
+// Carré de couleur plein dans les infobulles
+function tendLabelColor(tc){ const col = (tc.dataset._m && tc.dataset._m.color) || tc.dataset.borderColor; return {borderColor: col, backgroundColor: col}; }
+function tendFmt(m, v, isAvg){
+  if(v === null || v === undefined) return '—';
+  if(m.fmt) return m.fmt(v, isAvg);
+  return TEND_FMT.num(v);
+}
+
+// Préférences d'affichage, propres à l'appareil (non synchronisées)
+const TEND_PREFS_KEY = 'tracker_tend_prefs_v1';
+function tendPrefs(){
+  let p = {};
+  try{ p = JSON.parse(localStorage.getItem(TEND_PREFS_KEY)) || {}; }catch(e){ p = {}; }
+  return {
+    mode: p.mode === 'raw' ? 'raw' : 'avg',
+    hidden: Array.isArray(p.hidden) ? p.hidden : [],
+    overlay: Array.isArray(p.overlay) ? p.overlay : ['mood', 'anxiety', 'venla']
+  };
+}
+function saveTendPrefs(p){
+  try{ localStorage.setItem(TEND_PREFS_KEY, JSON.stringify(p)); }catch(e){}
+}
 
 // Plugin inline : lignes verticales des événements de traitement (ambre, libellés dans la légende
 // au-dessus des graphiques) et repères des jours marquants (trait violet léger + triangle)
@@ -3685,96 +3773,206 @@ function tendEventsPlugin(dateIndex, events, notable){
   };
 }
 
-function renderTendances(c, entries){
+// Contexte commun Tendances / Superposer : période, axe, repères
+const TEND_PERIODS = [[7,'7 j'],[14,'14 j'],[30,'1 mois'],[90,'3 mois'],[180,'6 mois'],[0,'Tout']];
+function tendContext(entries){
   const today = logicalDateStr();
-  const PERIODS = [[30,'1 mois'],[90,'3 mois'],[180,'6 mois'],[0,'Tout']];
   const period = state.tendPeriod;
   const from = period ? bilanAddDays(today, -(period - 1)) : (entries.length ? entries[0].date : today);
   const dates = tendDateAxis(from, today);
   const dateIndex = {};
   dates.forEach((d, i) => { dateIndex[d] = i; });
   const labels = dates.map(d => d.slice(8,10) + '/' + d.slice(5,7));
-
   const taper = (state.data.settings && state.data.settings.paroxetine_taper) || [];
   const events = tendTaperEvents(taper)
     .concat(tendMianserineTaperEvents(MIANSERINE_TAPER))
     .concat(treatmentEvents(state.data.treatments))
     .filter(ev => ev.date >= from && ev.date <= today);
   const notable = tendNotableDates(entries).filter(d => d >= from && d <= today);
+  return {today: today, period: period, from: from, dates: dates, dateIndex: dateIndex, labels: labels,
+          events: events, notable: notable, lookback: period ? 6 : 0};
+}
 
-  const sec = document.createElement('div');
-  sec.className = 'stats-section';
-  sec.innerHTML = `
-    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px">
-      <h3 style="margin:0">Tendances</h3>
-      <span style="font-size:12px;color:var(--text-faint)">Points pâles : valeurs brutes. Trait plein : moyenne mobile 7 jours.</span>
+function tendControlsHtml(ctx, prefs, extraBtn){
+  return `
+    <div class="heatmap-metric-selector" id="tend-period">${TEND_PERIODS.map(([n,lab]) => `<button class="heatmap-metric-btn${ctx.period === n ? ' active' : ''}" data-period="${n}">${lab}</button>`).join('')}</div>
+    <div class="tend-toolbar">
+      <div class="heatmap-metric-selector" id="tend-mode">
+        <button class="heatmap-metric-btn${prefs.mode === 'avg' ? ' active' : ''}" data-mode="avg">Moyenne 7 j</button>
+        <button class="heatmap-metric-btn${prefs.mode === 'raw' ? ' active' : ''}" data-mode="raw">Brut</button>
+      </div>
+      ${extraBtn || ''}
     </div>
-    <div class="heatmap-metric-selector" id="tend-period">${PERIODS.map(([n,lab]) => `<button class="heatmap-metric-btn${period === n ? ' active' : ''}" data-period="${n}">${lab}</button>`).join('')}</div>
-    ${events.length ? `<div class="tend-events">${events.map(ev => `<span>${new Date(ev.date + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'short'})} : ${ev.label}</span>`).join('')}</div>` : ''}
-    ${TEND_METRICS.map(m => `<div class="tend-block"><div class="tend-title" style="color:${m.color}">${m.label}</div><div class="stats-card"><div class="chart-wrap mini"><canvas id="tend-${m.key}"></canvas></div></div></div>`).join('')}
-    <div class="home-note">Ambre : traitement · violet : jours marquants · appuie sur un point pour voir le jour.</div>
-  `;
-  c.appendChild(sec);
+    ${ctx.events.length ? `<div class="tend-events">${ctx.events.map(ev => `<span>${new Date(ev.date + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'short'})} : ${escapeHtml(ev.label)}</span>`).join('')}</div>` : ''}`;
+}
 
+function wireTendControls(sec){
   sec.querySelector('#tend-period').addEventListener('click', e => {
     const btn = e.target.closest('[data-period]');
     if(!btn) return;
     state.tendPeriod = parseInt(btn.dataset.period, 10);
     renderStats();
   });
+  sec.querySelector('#tend-mode').addEventListener('click', e => {
+    const btn = e.target.closest('[data-mode]');
+    if(!btn) return;
+    const p = tendPrefs();
+    p.mode = btn.dataset.mode;
+    saveTendPrefs(p);
+    renderStats();
+  });
+}
 
-  TEND_METRICS.forEach(m => {
-    const raw = tendSeries(entries, m.getter, dates);
-    const ctx = document.getElementById('tend-' + m.key).getContext('2d');
-    // Poids (m.connect) : on relie simplement les points existants (spanGaps), toujours visible
-    // même avec peu de pesées. Les autres : points bruts pâles + moyenne mobile 7 jours.
-    const datasets = m.connect
-      ? [
-          {label: 'valeur', data: raw, borderColor: m.color, backgroundColor: 'transparent',
-           borderWidth: 2, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12, tension: .3, spanGaps: true}
-        ]
-      : [
-          {label: 'moy. 7 j', data: tendMovingAvg(raw, 7, 3), borderColor: m.color, backgroundColor: 'transparent',
-           borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: false},
-          {label: 'brut', data: raw, borderColor: 'transparent', backgroundColor: m.color + '59',
-           showLine: false, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12}
-        ];
-    state.charts['tend_' + m.key] = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: datasets
+function tendBaseOptions(ctx, entries){
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    onClick(evt, els){
+      if(!els.length) return;
+      const en = entries.find(x => x.date === ctx.dates[els[0].index]);
+      if(en) showDayPeek(en.id);
+    },
+    plugins: {
+      legend: {display: false},
+      tooltip: {backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1'}
+    },
+    scales: {
+      x: {ticks: {color:'#6b7785', font:{size:9}, maxTicksLimit: 8, maxRotation: 0}, grid: {display: false}}
+    }
+  };
+}
+
+function renderTendances(c, entries){
+  const ctx = tendContext(entries);
+  const prefs = tendPrefs();
+  const visible = TEND_METRICS.filter(m => prefs.hidden.indexOf(m.key) === -1);
+
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  sec.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <h3 style="margin:0">Tendances</h3>
+      <span style="font-size:12px;color:var(--text-faint)">${prefs.mode === 'avg' ? 'Points pâles : valeurs du jour. Trait plein : moyenne mobile 7 jours.' : 'Valeurs du jour, reliées entre elles.'} Doses et poids : toujours le relevé du jour.</span>
+    </div>
+    ${tendControlsHtml(ctx, prefs, `<button class="btn btn-secondary tend-pick-btn" id="tend-pick">Choisir les courbes (${visible.length}/${TEND_METRICS.length})</button>`)}
+    ${visible.length ? visible.map(m => `<div class="tend-block"><div class="tend-title" style="color:${m.color}">${m.label}</div><div class="stats-card"><div class="chart-wrap mini"><canvas id="tend-${m.key}"></canvas></div></div></div>`).join('')
+      : '<div class="home-note">Aucune courbe sélectionnée.</div>'}
+    <div class="home-note">Ambre : traitement · violet : jours marquants · appuie sur un point pour voir le jour.</div>
+  `;
+  c.appendChild(sec);
+  wireTendControls(sec);
+  sec.querySelector('#tend-pick').addEventListener('click', openTendPicker);
+
+  visible.forEach(m => {
+    const s = tendSeriesWithAvg(entries, m.getter, ctx.dates, ctx.lookback);
+    const rawOnly = m.connect || m.alwaysRaw || prefs.mode === 'raw';
+    const datasets = rawOnly
+      ? [{label: 'valeur', data: s.raw, borderColor: m.color, backgroundColor: 'transparent',
+          borderWidth: 2, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12,
+          tension: 0, stepped: m.stepped ? 'before' : false, spanGaps: true}]
+      : [{label: 'moy. 7 j', data: s.avg, borderColor: m.color, backgroundColor: 'transparent',
+          borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: false},
+         {label: 'brut', data: s.raw, borderColor: 'transparent', backgroundColor: m.color + '59',
+          showLine: false, pointRadius: 2, pointHoverRadius: 4, pointHitRadius: 12}];
+    const opts = tendBaseOptions(ctx, entries);
+    opts.plugins.tooltip.callbacks = {
+      label(tc){
+        if(tc.parsed.y === null) return null;
+        if(rawOnly) return tendFmt(m, tc.parsed.y, false);
+        return tc.datasetIndex === 0 ? 'moy. 7 j : ' + tendFmt(m, tc.parsed.y, true) : 'jour : ' + tendFmt(m, tc.parsed.y, false);
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        onClick(evt, els){
-          if(!els.length) return;
-          const en = entries.find(x => x.date === dates[els[0].index]);
-          if(en) showDayPeek(en.id);
-        },
-        plugins: {
-          legend: {display: false},
-          tooltip: {
-            backgroundColor:'#1f2730', borderColor:'#2a3441', borderWidth:1, titleColor:'#e4e7eb', bodyColor:'#9aa5b1',
-            callbacks: {
-              label(tc){
-                if(tc.parsed.y === null) return null;
-                const v = m.key === 'sleep' ? tc.parsed.y.toFixed(1) + ' h' : m.key === 'weight' ? tc.parsed.y.toFixed(1) + ' kg' : tc.parsed.y.toFixed(1);
-                if(m.connect) return v;
-                return (tc.datasetIndex === 0 ? 'moy. 7 j : ' : 'jour : ') + v;
-              }
-            }
-          }
-        },
-        scales: {
-          x: {ticks: {color:'#6b7785', font:{size:9}, maxTicksLimit: 8, maxRotation: 0}, grid: {display: false}},
-          y: {min: m.yMin, suggestedMax: m.yMax, ticks: {color:'#6b7785', font:{size:9}, maxTicksLimit: 5}, grid: {color:'#1f2730'}}
-        }
-      },
-      plugins: [tendEventsPlugin(dateIndex, events, notable)]
+      labelColor: () => ({borderColor: m.color, backgroundColor: m.color})
+    };
+    opts.scales.y = {min: m.yMin, suggestedMax: m.yMax,
+      ticks: Object.assign({color:'#6b7785', font:{size:9}, maxTicksLimit: 5}, m.step ? {stepSize: m.step} : {}),
+      grid: {color:'#1f2730'}};
+    state.charts['tend_' + m.key] = new Chart(document.getElementById('tend-' + m.key).getContext('2d'), {
+      type: 'line', data: {labels: ctx.labels, datasets: datasets}, options: opts,
+      plugins: [tendEventsPlugin(ctx.dateIndex, ctx.events, ctx.notable)]
     });
+  });
+}
+
+// Choix des courbes affichées dans Tendances (mémorisé sur l'appareil)
+function openTendPicker(){
+  const prefs = tendPrefs();
+  showModal('<h3>Courbes affichées</h3><p>Ce choix est mémorisé sur cet appareil.</p>'
+    + '<div class="tend-pick-list">' + TEND_METRICS.map(m => '<label><input type="checkbox" data-key="' + m.key + '"'
+      + (prefs.hidden.indexOf(m.key) === -1 ? ' checked' : '') + '><span class="ovl-dot" style="background:' + m.color + '"></span>' + m.label + '</label>').join('') + '</div>'
+    + '<div class="modal-actions" style="margin-top:14px">'
+    + '<button class="btn btn-secondary" onclick="tendPickAll()">Tout cocher</button>'
+    + '<button class="btn btn-primary" onclick="saveTendPicker()">Valider</button></div>');
+}
+window.tendPickAll = function(){
+  document.querySelectorAll('.tend-pick-list input[type=checkbox]').forEach(i => { i.checked = true; });
+};
+window.saveTendPicker = function(){
+  const p = tendPrefs();
+  p.hidden = [...document.querySelectorAll('.tend-pick-list input[type=checkbox]')].filter(i => !i.checked).map(i => i.dataset.key);
+  saveTendPrefs(p);
+  closeModal();
+  renderStats();
+};
+
+// Onglet Superposer : plusieurs paramètres sur un même graphique, chacun sur sa propre échelle
+function renderOverlay(c, entries){
+  const ctx = tendContext(entries);
+  const prefs = tendPrefs();
+  const catalog = TEND_METRICS.concat(TEND_EXTRA_METRICS);
+  const sel = catalog.filter(m => prefs.overlay.indexOf(m.key) !== -1);
+
+  const sec = document.createElement('div');
+  sec.className = 'stats-section';
+  sec.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <h3 style="margin:0">Superposer</h3>
+      <span style="font-size:12px;color:var(--text-faint)">Chaque courbe est ramenée à sa propre échelle, du minimum au maximum. Touche un point pour lire les vraies valeurs.</span>
+    </div>
+    ${tendControlsHtml(ctx, prefs, '')}
+    <div class="heatmap-metric-selector" id="ovl-pick">${catalog.map(m => `<button class="heatmap-metric-btn${prefs.overlay.indexOf(m.key) !== -1 ? ' active' : ''}" data-key="${m.key}"><span class="ovl-dot" style="background:${m.color}"></span>${tendShort(m)}</button>`).join('')}</div>
+    ${sel.length ? '<div class="stats-card"><div class="chart-wrap ovl"><canvas id="ovl-chart"></canvas></div></div>'
+      : '<div class="home-note">Choisis au moins un paramètre ci-dessus.</div>'}
+    <div class="home-note">Deux courbes qui bougent ensemble ne prouvent pas que l'une cause l'autre. Ambre : traitement · violet : jours marquants.</div>
+  `;
+  c.appendChild(sec);
+  wireTendControls(sec);
+  sec.querySelector('#ovl-pick').addEventListener('click', e => {
+    const btn = e.target.closest('[data-key]');
+    if(!btn) return;
+    const p = tendPrefs();
+    const k = btn.dataset.key, i = p.overlay.indexOf(k);
+    if(i >= 0) p.overlay.splice(i, 1); else p.overlay.push(k);
+    saveTendPrefs(p);
+    renderStats();
+  });
+  if(!sel.length) return;
+
+  const datasets = sel.map(m => {
+    const s = tendSeriesWithAvg(entries, m.getter, ctx.dates, ctx.lookback);
+    const useAvg = prefs.mode === 'avg' && !m.alwaysRaw && !m.connect;
+    const vals = useAvg ? s.avg : s.raw;
+    const range = tendNormRange(s.raw, m.yMin, m.yMax);
+    return {label: m.label, data: tendNormalize(vals, range), _real: vals, _m: m, _avg: useAvg,
+      borderColor: m.color, backgroundColor: 'transparent', borderWidth: 2,
+      pointRadius: useAvg ? 0 : 2, pointHoverRadius: 4, pointHitRadius: 10,
+      tension: (useAvg && !m.stepped) ? .3 : 0, stepped: m.stepped ? 'before' : false, spanGaps: !useAvg};
+  });
+  const opts = tendBaseOptions(ctx, entries);
+  opts.interaction = {mode: 'index', intersect: false};
+  opts.plugins.tooltip.callbacks = {
+    label(tc){
+      const ds = tc.dataset;
+      const v = ds._real[tc.dataIndex];
+      if(v === null || v === undefined) return null;
+      return tendShort(ds._m) + ' : ' + tendFmt(ds._m, v, ds._avg) + (ds._avg ? ' (moy. 7 j)' : '');
+    },
+    labelColor: tendLabelColor
+  };
+  opts.scales.y = {min: 0, max: 100, ticks: {display: false}, grid: {color:'#1f2730'}};
+  state.charts.overlay = new Chart(document.getElementById('ovl-chart').getContext('2d'), {
+    type: 'line', data: {labels: ctx.labels, datasets: datasets}, options: opts,
+    plugins: [tendEventsPlugin(ctx.dateIndex, ctx.events, ctx.notable)]
   });
 }
 
