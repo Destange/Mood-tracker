@@ -645,7 +645,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.29.1';
+const VERSION = '1.30.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -782,7 +782,8 @@ const FIELD_DEFS = {
   // --- Session matin ---
   sleep_bedtime: {type:'time', label:"Heure de coucher (veille)"},
   sleep_waketime: {type:'time', label:"Heure de lever"},
-  sleep_duration_min: {type:'integer', label:"Durée de sommeil estimée (minutes)"},
+  sleep_duration_min: {type:'integer', label:"Durée de sommeil estimée (minutes). Depuis v1.30.0 : du coucher au lever MOINS l'éveil nocturne (night_awake_min)"},
+  night_awake_min: {type:'integer-0+', label:"Durée totale d'éveil au milieu de la nuit (minutes), déjà soustraite de sleep_duration_min"},
   sleep_quality: {type:'integer-0-10', label:"Qualité subjective du sommeil"},
   wake_count: {type:'integer-0+', label:"Nombre de réveils nocturnes"},
   dream_quality: {type:'integer-0-3', label:"Qualité des rêves (0=aucun souvenir, 3=rêves complexes)"},
@@ -1159,7 +1160,7 @@ const EVENING_MINIMAL_STEPS = ['energy', 'anxiety', 'suicidal', 'mood_evening', 
 /* ===== SYNC-PURE-BEGIN (logique de fusion, testée dans node) ===== */
 
 /* Listes officielles des champs par session (source unique : blankEntry) */
-const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
+const MORNING_FIELDS = ['sleep_bedtime','sleep_waketime','sleep_duration_min','night_awake_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg'];
 const EVENING_FIELDS = ['paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','activities','adhoc_persons','physical_activity','social_media_min','activities_other','activities_note','notable_event','notable_event_text','free_note'];
 
 function _stamp(e, key){ return (e && e[key]) ? e[key] : ''; }
@@ -1464,6 +1465,7 @@ function blankEntry(date){
     sleep_bedtime: '',
     sleep_waketime: '',
     sleep_duration_min: 0,
+    night_awake_min: 0, // eveil au milieu de la nuit (min), soustrait de la duree de sommeil (v1.30.0)
     sleep_quality: null, // reponse obligatoire en saisie, pas de valeur fabriquee
     wake_count: 0, // compteur, vraie valeur (question remise en v1.21.0)
     dream_quality: null,
@@ -1607,6 +1609,32 @@ function stepWrap(num, title, help){
   return div;
 }
 
+/* ===== SLEEP-PURE-BEGIN ===== Duree de sommeil (v1.30.0) */
+// Minutes au lit entre deux heures HH:MM (passage de minuit gere). null si une heure manque.
+function sleepInBedMinutes(bed, wake){
+  if(!bed || !wake) return null;
+  const b = bed.split(':').map(Number), w = wake.split(':').map(Number);
+  if(b.length < 2 || w.length < 2 || b.some(isNaN) || w.some(isNaN)) return null;
+  let mins = (w[0] * 60 + w[1]) - (b[0] * 60 + b[1]);
+  if(mins <= 0) mins += 1440;
+  return mins;
+}
+// Sommeil reel = temps au lit - eveil nocturne (l'eveil est borne entre 0 et le temps au lit)
+function sleepNet(bed, wake, awake){
+  const inBed = sleepInBedMinutes(bed, wake);
+  if(inBed === null) return {inBed: null, awake: 0, net: 0};
+  let a = typeof awake === 'number' && !isNaN(awake) ? Math.round(awake) : 0;
+  if(a < 0) a = 0;
+  if(a > inBed) a = inBed;
+  return {inBed: inBed, awake: a, net: inBed - a};
+}
+function fmtHM(mins){
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if(h === 0) return m + ' min';
+  return h + 'h' + (m ? String(m).padStart(2, '0') : '');
+}
+/* ===== SLEEP-PURE-END ===== */
+
 function buildStep(step){
   const idx = state.entrySteps.indexOf(step);
   const d = state.entryDraft;
@@ -1625,6 +1653,18 @@ function buildStep(step){
         <input type="time" id="sl-waketime" value="${d.sleep_waketime||''}" style="width:100%">
       </div>`;
     w.appendChild(grid);
+    if(typeof d.night_awake_min !== 'number') d.night_awake_min = 0;
+    // Eveil au milieu de la nuit : duree totale, par pas de 15 min, soustraite du sommeil
+    const awakeWrap = document.createElement('div');
+    awakeWrap.style.cssText = 'margin:4px 0 16px';
+    awakeWrap.innerHTML = `
+      <div style="font-size:12px;color:var(--text-faint);margin-bottom:8px;text-align:center">Éveillé au milieu de la nuit (durée totale)</div>
+      <div class="num-input">
+        <button type="button" id="sl-awake-minus">−</button>
+        <div id="sl-awake-val" style="min-width:90px;text-align:center;font-size:20px;font-weight:600;color:var(--text)"></div>
+        <button type="button" id="sl-awake-plus">+</button>
+      </div>`;
+    w.appendChild(awakeWrap);
     const durDisplay = document.createElement('div');
     durDisplay.id = 'sleep-dur-display';
     durDisplay.style.cssText = 'text-align:center;font-size:18px;font-weight:600;color:var(--teal);min-height:28px';
@@ -1634,23 +1674,28 @@ function buildStep(step){
       const wake = document.getElementById('sl-waketime')?.value;
       d.sleep_bedtime = bed || '';
       d.sleep_waketime = wake || '';
-      if(bed && wake){
-        let [bh,bm] = bed.split(':').map(Number);
-        let [wh,wm] = wake.split(':').map(Number);
-        let mins = (wh*60+wm) - (bh*60+bm);
-        if(mins <= 0) mins += 1440;
-        d.sleep_duration_min = mins;
-        const h = Math.floor(mins/60);
-        const m = mins % 60;
-        document.getElementById('sleep-dur-display').textContent = `${h}h${m>0?String(m).padStart(2,'0'):''}`;
+      const s = sleepNet(bed, wake, d.night_awake_min);
+      const av = document.getElementById('sl-awake-val');
+      const dd = document.getElementById('sleep-dur-display');
+      if(s.inBed !== null){
+        d.night_awake_min = s.awake; // borne au temps passe au lit
+        d.sleep_duration_min = s.net;
+        dd.innerHTML = s.awake > 0
+          ? 'Sommeil ' + fmtHM(s.net) + '<div style="font-size:12px;font-weight:400;color:var(--text-faint);margin-top:2px">au lit ' + fmtHM(s.inBed) + ' · éveillé ' + fmtHM(s.awake) + '</div>'
+          : fmtHM(s.net);
       } else {
         d.sleep_duration_min = 0;
-        document.getElementById('sleep-dur-display').textContent = '';
+        dd.textContent = '';
       }
+      if(av) av.textContent = d.night_awake_min > 0 ? fmtHM(d.night_awake_min) : 'aucun';
     }
     setTimeout(()=>{
-      document.getElementById('sl-bedtime').addEventListener('input', calcDuration);
+      const bi = document.getElementById('sl-bedtime');
+      if(!bi) return;
+      bi.addEventListener('input', calcDuration);
       document.getElementById('sl-waketime').addEventListener('input', calcDuration);
+      document.getElementById('sl-awake-minus').onclick = ()=>{ d.night_awake_min = Math.max(0, (d.night_awake_min || 0) - 15); calcDuration(); };
+      document.getElementById('sl-awake-plus').onclick = ()=>{ d.night_awake_min = (d.night_awake_min || 0) + 15; calcDuration(); };
       calcDuration();
     },0);
     return w;
@@ -2467,7 +2512,7 @@ if(step === 'positive_feelings'){
       const durH = d.sleep_duration_min ? Math.floor(d.sleep_duration_min/60)+'h'+String(d.sleep_duration_min%60).padStart(2,'0') : '';
       rows = [
         ['Date', formatDate(d.date)],
-        ['Horaires', (d.sleep_bedtime||'?')+' → '+(d.sleep_waketime||'?')+(durH ? ` (${durH})` : '')],
+        ['Horaires', (d.sleep_bedtime||'?')+' → '+(d.sleep_waketime||'?')+(durH ? ` (${durH}${d.night_awake_min > 0 ? ', éveillé ' + fmtHM(d.night_awake_min) : ''})` : '')],
         ['Sommeil', `${d.sleep_quality}/10${typeof d.wake_count === 'number' ? ` · ${d.wake_count} réveil${d.wake_count>1?'s':''}` : ''}`]
       ];
       if(d.dream_quality != null){
@@ -2850,7 +2895,7 @@ function renderEditDayView(entry){
 function formatStepValue(e, step){
   const dash = '—';
   switch(step){
-    case 'sleep_schedule': return (e.sleep_bedtime && e.sleep_waketime) ? `${e.sleep_bedtime} → ${e.sleep_waketime}` : dash;
+    case 'sleep_schedule': return (e.sleep_bedtime && e.sleep_waketime) ? `${e.sleep_bedtime} → ${e.sleep_waketime}${e.night_awake_min > 0 ? ' · éveillé ' + fmtHM(e.night_awake_min) : ''}` : dash;
     case 'sleep_quality': return e.sleep_quality != null ? `${e.sleep_quality}/10` : dash;
     case 'wake_count': return e.wake_count != null ? `${e.wake_count} réveil${e.wake_count!==1?'s':''}` : dash;
     case 'dreams': {
@@ -2951,6 +2996,7 @@ function journalChips(e){
     const h = Math.floor(e.sleep_duration_min/60), m = e.sleep_duration_min%60;
     add('Sommeil', h + 'h' + (m ? String(m).padStart(2,'0') : ''), jColorClass('sleepmin', e.sleep_duration_min));
   }
+  if(e.night_awake_min > 0) add('Éveil nocturne', fmtHM(e.night_awake_min), 'jv-orange');
   if(e.energy != null) add('Énergie', e.energy + '/10', jColorClass('good10', e.energy));
   if(e.mood_evening != null) add('Humeur', e.mood_evening + '/10', jColorClass('good10', e.mood_evening));
   if(e.anxiety != null) add('Anxiété', e.anxiety + '/10', jColorClass('bad10', e.anxiety));
@@ -5355,7 +5401,7 @@ function exportJSON(){
 }
 
 function exportCSV(){
-  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','adhoc_persons','activities_other','activities_note','notable_event','notable_event_text','free_note'];
+  const cols = ['date','morning_done','evening_done','sleep_bedtime','sleep_waketime','sleep_duration_min','night_awake_min','sleep_quality','wake_count','dream_quality','nightmare','nightmare_note','mood_morning','brain_fog_morning','energy_morning','note_morning','weight_kg','paroxetine_mg','mianserine_mg','venlafaxine_mg','oxazepam_mg','energy','anxiety','brain_fog','blunting','libido','onan_count','mood_evening','suicidal','suicidal_note','rgo','rgo_intensity','side_effects','side_effects_other','positive_feelings','cafes_count','alcohol_units','gaviscon_doses','pantoprazole_doses','ltyrosine_mg','physical_activity','social_media_min','activities','adhoc_persons','activities_other','activities_note','notable_event','notable_event_text','free_note'];
   const header = cols.join(';');
   const rows = state.data.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e =>
     cols.map(c => csvEscape(e[c])).join(';')
@@ -5406,7 +5452,7 @@ function exportMarkdown(){
       md += `**Matin**\n`;
       if(e.sleep_bedtime || e.sleep_waketime){
         const durH = e.sleep_duration_min ? Math.floor(e.sleep_duration_min/60)+'h'+String(e.sleep_duration_min%60).padStart(2,'0') : '';
-        md += `- Horaires : ${e.sleep_bedtime||'?'} → ${e.sleep_waketime||'?'}${durH ? ' ('+durH+')' : ''}\n`;
+        md += `- Horaires : ${e.sleep_bedtime||'?'} → ${e.sleep_waketime||'?'}${durH ? ' ('+durH+(e.night_awake_min > 0 ? ', dont éveil nocturne ' + fmtHM(e.night_awake_min) + ' déjà retiré' : '')+')' : ''}\n`;
       }
       md += `- Sommeil : ${e.sleep_quality}/10${typeof e.wake_count === 'number' ? ` (${e.wake_count} réveils)` : ''}\n`;
       if(e.dream_quality != null){ const dqL = {0:'Aucun souvenir',1:'Vagues souvenirs',2:'Rêves normaux',3:'Rêves complexes'}; md += `- Rêves : ${dqL[e.dream_quality]||'—'}${e.nightmare ? ' · Cauchemar' + (e.nightmare_note ? ' ('+e.nightmare_note+')' : '') : ''}\n`; }
@@ -5611,6 +5657,7 @@ function exportPDF(){
       const slpDur = e.sleep_duration_min > 0 ? Math.floor(e.sleep_duration_min/60)+'h'+String(e.sleep_duration_min%60).padStart(2,'0') : '';
       const horaires = (e.sleep_bedtime && e.sleep_waketime) ? e.sleep_bedtime+' → '+e.sleep_waketime : '';
       if(horaires) dh += '<tr><td>Horaires</td><td>'+horaires+(slpDur?' <span class="dur">('+slpDur+')</span>':'')+'</td></tr>';
+      if(e.night_awake_min > 0) dh += '<tr><td>Éveil nocturne</td><td>'+fmtHM(e.night_awake_min)+' <span class="dur">(retiré du sommeil)</span></td></tr>';
       dh += '<tr><td>Qualité sommeil</td><td>'+scoreSpan(e.sleep_quality,true)+'/10'+(e.wake_count>0?' · '+e.wake_count+' réveils':'')+'</td></tr>';
       // Rêves
       if(e.dream_quality !== null && e.dream_quality !== undefined){
