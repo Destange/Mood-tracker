@@ -5,6 +5,44 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f1419">
+<script>
+/* Verrou PIN (v1.31.0) : decide AVANT le premier affichage si l'ecran de code doit couvrir l'app,
+   pour qu'aucune donnee ne s'affiche meme une fraction de seconde. */
+/* PIN-PURE-BEGIN (logique pure, extractible pour les tests) */
+const PIN_LOCK_KEY = 'tracker_lock_v1';   // {salt, hash, delay_min, fails, locked_until, left_at} : local, jamais synchronise ni exporte
+const PIN_DELAYS_MIN = [0, 1, 5, 15];
+function pinEnabled(cfg){ return !!(cfg && cfg.hash && cfg.salt); }
+function pinDelayMs(cfg){
+  const m = (cfg && typeof cfg.delay_min === 'number' && cfg.delay_min >= 0) ? cfg.delay_min : 1;
+  return m * 60000;
+}
+// Au chargement : verrouiller, sauf si l'app a ete quittee deverrouillee il y a moins que le delai
+function pinShouldLockAtLoad(cfg, now){
+  if(!pinEnabled(cfg)) return false;
+  if(typeof cfg.left_at !== 'number') return true;
+  const el = now - cfg.left_at;
+  return !(el >= 0 && el < pinDelayMs(cfg));
+}
+// Retour au premier plan : verrouiller si l'absence a dure au moins le delai (ou horloge incoherente)
+function pinShouldLockOnReturn(cfg, hiddenAt, now){
+  if(!pinEnabled(cfg) || typeof hiddenAt !== 'number') return false;
+  const el = now - hiddenAt;
+  return el < 0 || el >= pinDelayMs(cfg);
+}
+// Attente imposee apres chaque serie de 5 erreurs : 30 s, puis double, plafonnee a 1 h
+function pinLockoutMs(fails){
+  if(!fails || fails % 5 !== 0) return 0;
+  return Math.min(30000 * Math.pow(2, fails / 5 - 1), 3600000);
+}
+function pinValidFormat(s){ return /^[0-9]{4}$/.test(String(s)); }
+/* PIN-PURE-END */
+(function(){
+  try{
+    const cfg = JSON.parse(localStorage.getItem(PIN_LOCK_KEY));
+    if(pinShouldLockAtLoad(cfg, Date.now())) document.documentElement.classList.add('pin-locked');
+  }catch(e){}
+})();
+</script>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
 <title>Life Tracker</title>
@@ -409,9 +447,63 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
 .journal-empty{color:var(--text-faint);font-size:15px;font-style:italic;padding:8px 0}
 .journal-edit{margin-top:34px;display:flex;justify-content:center}
 .journal-edit-btn{padding:10px 18px;font-size:13px}
+
+/* === VERROU PIN (v1.31.0) === */
+#pin-lock{display:none;position:fixed;inset:0;z-index:1000;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;padding-top:max(24px,env(safe-area-inset-top));padding-bottom:max(24px,env(safe-area-inset-bottom));overflow-y:auto}
+html.pin-locked #pin-lock{display:flex}
+html.pin-locked body{overflow:hidden}
+html.pin-locked .app,html.pin-locked .fab,html.pin-locked .modal-bg,
+html.pin-cover .app,html.pin-cover .fab,html.pin-cover .modal-bg{visibility:hidden}
+.pin-box{width:100%;max-width:320px;text-align:center}
+.pin-title{font-size:20px;font-weight:600;margin:0 0 6px;letter-spacing:-.01em}
+.pin-msg{min-height:44px;font-size:14px;color:var(--text-dim);margin:0 0 18px}
+.pin-msg.error{color:var(--red)}
+.pin-dots{display:flex;justify-content:center;gap:18px;margin-bottom:30px}
+.pin-dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--text-dim);transition:var(--t)}
+.pin-dot.filled{background:var(--teal);border-color:var(--teal)}
+.pin-dots.shake{animation:pinShake .35s}
+@keyframes pinShake{0%,100%{transform:none}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;justify-items:center}
+.pin-key{width:72px;height:72px;border-radius:50%;background:var(--bg-3);font-size:26px;font-weight:500;color:var(--text);transition:background .15s}
+.pin-key:active{background:var(--bg-4)}
+.pin-key:disabled{opacity:.35;cursor:not-allowed}
+.pin-key.pin-key-text{background:none;font-size:14px;color:var(--text-dim)}
+.pin-link{margin-top:22px;font-size:14px;color:var(--teal);text-decoration:underline;padding:10px;min-height:44px}
+#pin-recover-view input{margin:4px 0 12px}
+.pin-settings-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;font-size:14px;color:var(--text-dim)}
+.pin-settings-row select{padding:10px;background:var(--bg-3);border:1.5px solid var(--border);border-radius:var(--radius-sm);color:var(--text)}
 </style>
 </head>
 <body>
+
+<div id="pin-lock" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+  <div class="pin-box">
+    <div id="pin-pad-view">
+      <h2 class="pin-title" id="pin-title">Life Tracker</h2>
+      <p class="pin-msg" id="pin-msg">Saisis ton code pour ouvrir l'app.</p>
+      <div class="pin-dots" id="pin-dots"><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span></div>
+      <div class="pin-pad" id="pin-pad">
+        <button class="pin-key" data-k="1">1</button><button class="pin-key" data-k="2">2</button><button class="pin-key" data-k="3">3</button>
+        <button class="pin-key" data-k="4">4</button><button class="pin-key" data-k="5">5</button><button class="pin-key" data-k="6">6</button>
+        <button class="pin-key" data-k="7">7</button><button class="pin-key" data-k="8">8</button><button class="pin-key" data-k="9">9</button>
+        <button class="pin-key pin-key-text" id="pin-cancel">Annuler</button><button class="pin-key" data-k="0">0</button><button class="pin-key pin-key-text" data-k="del" aria-label="Effacer">⌫</button>
+      </div>
+      <button class="pin-link" id="pin-forgot">Code oublié ?</button>
+    </div>
+    <div id="pin-recover-view" style="display:none">
+      <h2 class="pin-title">Code oublié</h2>
+      <p class="pin-msg" id="pin-recover-msg"></p>
+      <div id="pin-recover-token">
+        <input type="password" id="pin-token" placeholder="Token GitHub (scope gist)" autocomplete="off">
+        <button class="btn btn-primary btn-block" id="pin-token-btn">Déverrouiller</button>
+      </div>
+      <div id="pin-recover-wipe" style="display:none">
+        <button class="btn btn-danger btn-block" id="pin-wipe-btn">Effacer les données de cet appareil</button>
+      </div>
+      <button class="pin-link" id="pin-back">Revenir au code</button>
+    </div>
+  </div>
+</div>
 
 <div class="app">
 
@@ -597,6 +689,12 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
     </div>
 
     <div class="settings-section">
+      <h3>Code PIN</h3>
+      <p class="help">Demande un code à 4 chiffres à l'ouverture de l'app sur cet appareil. Le code est propre à chaque appareil et n'est jamais synchronisé. En cas d'oubli, ton token GitHub de synchronisation permet de déverrouiller l'app.</p>
+      <div id="pin-settings"></div>
+    </div>
+
+    <div class="settings-section">
       <h3>Synchronisation multi-appareils</h3>
       <p class="help">Synchronise tes données entre plusieurs appareils via un Gist privé sur ton compte GitHub. Colle un token classique avec la seule permission "gist". Les réglages (thème, rappels, doses) restent propres à chaque appareil.</p>
       <div id="sync-status" style="font-size:13px;margin:8px 0"></div>
@@ -645,7 +743,7 @@ textarea{min-height:100px;resize:vertical;font-family:inherit}
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.30.0';
+const VERSION = '1.31.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -5135,6 +5233,9 @@ function renderSettings(){
 
   // Synchronisation
   updateSyncUI();
+
+  // Code PIN
+  renderPinSettings();
 }
 
 function editDefaults(){
@@ -6369,10 +6470,358 @@ function disconnectSync(){
 }
 
 /* ============================================================
+   VERROU PAR CODE PIN (v1.31.0)
+   Cle locale PIN_LOCK_KEY (declaree dans le <head>), propre a l'appareil :
+   jamais synchronisee, jamais exportee. On ne stocke qu'une empreinte PBKDF2
+   salee du code. C'est une porte, pas un coffre : les donnees ne sont PAS
+   chiffrees, elles restent lisibles via les outils de developpement.
+   Recuperation : le token de synchro (identique, ou nouveau token du meme
+   compte GitHub que le Gist). Sans synchro sur l'appareil : effacement.
+   ============================================================ */
+
+/* PIN-HASH-BEGIN (extractible pour les tests) */
+const PIN_PBKDF2_ITER = 100000;
+function pinB64(bytes){ return btoa(String.fromCharCode.apply(null, new Uint8Array(bytes))); }
+async function pinHash(pin, saltB64){
+  const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(pin)), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({name:'PBKDF2', salt: salt, iterations: PIN_PBKDF2_ITER, hash:'SHA-256'}, key, 256);
+  return pinB64(bits);
+}
+/* PIN-HASH-END */
+
+let _pin = {mode:'unlock', buf:'', first:'', onDone:null, onCancel:null, forced:false, busy:false};
+let _pinHiddenAt = null;
+let _pinTick = null;
+
+function pinConfig(){ try{ return JSON.parse(localStorage.getItem(PIN_LOCK_KEY)) || {}; }catch(e){ return {}; } }
+function savePinConfig(cfg){ try{ localStorage.setItem(PIN_LOCK_KEY, JSON.stringify(cfg)); }catch(e){} }
+function pinIsLocked(){ return document.documentElement.classList.contains('pin-locked'); }
+// L'app est-elle accessible derriere ? (ecran de code absent, ou ouvert depuis les reglages)
+function pinAppOpen(){ return !pinIsLocked() || _pin.mode !== 'unlock'; }
+
+async function pinCheck(code){
+  const cfg = pinConfig();
+  if(!pinEnabled(cfg)) return false;
+  return (await pinHash(code, cfg.salt)) === cfg.hash;
+}
+async function pinStore(code){
+  const cfg = pinConfig();
+  cfg.salt = pinB64(crypto.getRandomValues(new Uint8Array(16)));
+  cfg.hash = await pinHash(code, cfg.salt);
+  if(typeof cfg.delay_min !== 'number') cfg.delay_min = 1;
+  cfg.fails = 0;
+  delete cfg.locked_until;
+  savePinConfig(cfg);
+}
+function pinLockoutRemaining(){
+  const lu = pinConfig().locked_until;
+  return (typeof lu === 'number') ? Math.max(0, lu - Date.now()) : 0;
+}
+
+const PIN_TEXTS = {
+  unlock: ['Life Tracker', "Saisis ton code pour ouvrir l'app."],
+  verify: ['Code actuel', 'Saisis ton code actuel pour continuer.'],
+  setup1: ['Nouveau code', 'Choisis un code à 4 chiffres.'],
+  setup2: ['Confirmation', 'Saisis le même code une seconde fois.']
+};
+
+function pinRender(msg, isError){
+  const t = PIN_TEXTS[_pin.mode] || PIN_TEXTS.unlock;
+  document.getElementById('pin-title').textContent = t[0];
+  const m = document.getElementById('pin-msg');
+  const checking = (_pin.mode === 'unlock' || _pin.mode === 'verify');
+  const wait = checking ? pinLockoutRemaining() : 0;
+  if(_pinTick){ clearTimeout(_pinTick); _pinTick = null; }
+  if(wait > 0){
+    m.textContent = "Trop d'essais. Réessaie dans " + Math.ceil(wait / 1000) + ' s.';
+    m.className = 'pin-msg error';
+    _pinTick = setTimeout(() => pinRender(), 1000);
+  } else {
+    m.textContent = msg || (_pin.forced && _pin.mode === 'setup1' ? 'Déverrouillé. Choisis un nouveau code à 4 chiffres.' : t[1]);
+    m.className = 'pin-msg' + (isError ? ' error' : '');
+  }
+  document.querySelectorAll('#pin-dots .pin-dot').forEach((d, i) => d.classList.toggle('filled', i < _pin.buf.length));
+  document.querySelectorAll('#pin-pad [data-k]').forEach(b => { b.disabled = wait > 0; });
+  document.getElementById('pin-cancel').style.visibility = (_pin.mode !== 'unlock' && !_pin.forced) ? 'visible' : 'hidden';
+  document.getElementById('pin-forgot').style.display = (_pin.mode === 'unlock') ? '' : 'none';
+}
+
+function pinShowPad(){
+  document.getElementById('pin-pad-view').style.display = '';
+  document.getElementById('pin-recover-view').style.display = 'none';
+}
+
+function pinShowOverlay(mode, opts){
+  opts = opts || {};
+  _pin.mode = mode; _pin.buf = ''; _pin.first = '';
+  _pin.onDone = opts.onDone || null; _pin.onCancel = opts.onCancel || null; _pin.forced = !!opts.forced;
+  document.documentElement.classList.remove('pin-cover');
+  document.documentElement.classList.add('pin-locked');
+  if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  pinShowPad();
+  pinRender();
+}
+function pinHideOverlay(){
+  if(_pinTick){ clearTimeout(_pinTick); _pinTick = null; }
+  _pin.buf = ''; _pin.first = ''; _pin.onDone = null; _pin.onCancel = null; _pin.forced = false;
+  _pin.mode = 'unlock';
+  document.documentElement.classList.remove('pin-locked');
+}
+function pinLock(){
+  const cfg = pinConfig();
+  if(!pinEnabled(cfg)) return;
+  delete cfg.left_at;
+  savePinConfig(cfg);
+  pinShowOverlay('unlock');
+}
+function pinCancel(){
+  if(_pin.mode === 'unlock' || _pin.forced) return;
+  const cb = _pin.onCancel;
+  pinHideOverlay();
+  if(cb) cb();
+}
+function pinShake(){
+  const d = document.getElementById('pin-dots');
+  d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake');
+  if(navigator.vibrate) try{ navigator.vibrate(120); }catch(e){}
+}
+
+async function pinPress(k){
+  if(_pin.busy) return;
+  if((_pin.mode === 'unlock' || _pin.mode === 'verify') && pinLockoutRemaining() > 0) return;
+  if(k === 'del'){ _pin.buf = _pin.buf.slice(0, -1); pinRender(); return; }
+  if(!/^[0-9]$/.test(k) || _pin.buf.length >= 4) return;
+  _pin.buf += k;
+  pinRender();
+  if(_pin.buf.length === 4) await pinSubmit();
+}
+
+async function pinSubmit(){
+  const code = _pin.buf;
+  if(!pinValidFormat(code)) return;
+  _pin.busy = true;
+  try{
+    await new Promise(r => setTimeout(r, 120)); // laisse voir le 4e point
+    if(_pin.mode === 'unlock' || _pin.mode === 'verify'){
+      const ok = await pinCheck(code);
+      const cfg = pinConfig();
+      if(ok){
+        cfg.fails = 0; delete cfg.locked_until; savePinConfig(cfg);
+        const cb = _pin.onDone;
+        pinHideOverlay();
+        if(cb) cb();
+      } else {
+        cfg.fails = (cfg.fails || 0) + 1;
+        const lo = pinLockoutMs(cfg.fails);
+        if(lo) cfg.locked_until = Date.now() + lo;
+        savePinConfig(cfg);
+        _pin.buf = '';
+        pinShake();
+        pinRender('Code incorrect.', true);
+      }
+    } else if(_pin.mode === 'setup1'){
+      _pin.first = code; _pin.buf = ''; _pin.mode = 'setup2';
+      pinRender();
+    } else if(_pin.mode === 'setup2'){
+      if(code === _pin.first){
+        await pinStore(code);
+        const cb = _pin.onDone;
+        pinHideOverlay();
+        if(cb) cb();
+      } else {
+        _pin.mode = 'setup1'; _pin.first = ''; _pin.buf = '';
+        pinShake();
+        pinRender('Les deux codes ne correspondent pas. Recommence.', true);
+      }
+    }
+  } catch(e){
+    _pin.buf = '';
+    pinRender('Erreur : ' + ((e && e.message) || 'inconnue'), true);
+  } finally {
+    _pin.busy = false;
+  }
+}
+
+/* --- Code oublie : deverrouillage par le token de synchronisation --- */
+function pinShowRecover(){
+  document.getElementById('pin-pad-view').style.display = 'none';
+  document.getElementById('pin-recover-view').style.display = '';
+  const hasSync = !!syncConfig().token;
+  const msg = document.getElementById('pin-recover-msg');
+  msg.className = 'pin-msg';
+  msg.textContent = hasSync
+    ? "Colle ton token GitHub de synchronisation. Un nouveau token généré sur le même compte GitHub est aussi accepté (connexion internet nécessaire)."
+    : "La synchronisation n'est pas configurée sur cet appareil : impossible de vérifier ton identité. Seule solution : effacer les données de cet appareil. Ce qui n'a été ni synchronisé ni exporté sera perdu.";
+  document.getElementById('pin-recover-token').style.display = hasSync ? '' : 'none';
+  document.getElementById('pin-recover-wipe').style.display = hasSync ? 'none' : '';
+  if(hasSync) setTimeout(() => { const i = document.getElementById('pin-token'); if(i) i.focus(); }, 50);
+}
+
+// true si le token prouve que c'est bien toi. Peut mettre a jour le token enregistre.
+async function pinVerifyToken(tok){
+  const cfg = syncConfig();
+  if(!cfg.token) return false;
+  if(tok === cfg.token) return true;
+  if(!cfg.gist_id) throw new Error("ce token est différent de celui enregistré et le Gist n'est pas encore connu sur cet appareil");
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try{
+    const opts = {signal: ctrl.signal, cache: 'no-store', headers: {'Authorization': 'Bearer ' + tok, 'Accept': 'application/vnd.github+json'}};
+    const [ru, rg] = await Promise.all([
+      fetch('https://api.github.com/user', opts),
+      fetch('https://api.github.com/gists/' + cfg.gist_id, opts)
+    ]);
+    if(ru.status === 401 || rg.status === 401) return false;
+    if(!ru.ok) throw new Error('GitHub ' + ru.status);
+    if(!rg.ok) throw new Error('GitHub ' + rg.status);
+    const u = await ru.json();
+    const g = await rg.json();
+    if(!(u && u.login && g && g.owner && g.owner.login === u.login)) return false;
+    // Meme compte : le nouveau token remplace l'ancien (repare la synchro au passage)
+    cfg.token = tok;
+    delete cfg.last_error;
+    saveSyncConfig(cfg);
+    return true;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function pinRecoverSubmit(){
+  const inp = document.getElementById('pin-token');
+  const btn = document.getElementById('pin-token-btn');
+  const msg = document.getElementById('pin-recover-msg');
+  const tok = (inp.value || '').trim();
+  if(!tok){ msg.textContent = "Colle d'abord ton token."; msg.className = 'pin-msg error'; return; }
+  btn.disabled = true;
+  msg.textContent = 'Vérification...'; msg.className = 'pin-msg';
+  try{
+    const ok = await pinVerifyToken(tok);
+    if(ok){
+      inp.value = '';
+      const cfg = pinConfig();
+      cfg.fails = 0; delete cfg.locked_until; savePinConfig(cfg);
+      pinShowOverlay('setup1', {forced: true, onDone: () => toast('Nouveau code enregistré.', 'success')});
+    } else {
+      msg.textContent = 'Ce token ne correspond pas au compte GitHub de ta synchronisation.';
+      msg.className = 'pin-msg error';
+    }
+  } catch(e){
+    const why = (e && e.name === 'AbortError') ? 'délai dépassé' : ((e && e.message && e.message !== 'Failed to fetch') ? e.message : 'pas de connexion internet ?');
+    msg.textContent = 'Vérification impossible : ' + why + '.';
+    msg.className = 'pin-msg error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Efface tout ce que l'app stocke sur cet appareil (la copie Gist n'est pas touchee)
+function wipeDeviceData(){
+  [STORAGE_DATA, STORAGE_SYNC, SYNC_BACKUP_KEY, REMINDER_FIRED_KEY, ARCHIVE_KEY, ENTRY_PROGRESS_KEY, PIN_LOCK_KEY]
+    .forEach(k => { try{ localStorage.removeItem(k); }catch(e){} });
+  location.reload();
+}
+function pinWipe(){
+  if(!confirm("Effacer toutes les données de cet appareil, code PIN compris ? Ce qui n'a été ni synchronisé ni exporté sera perdu.")) return;
+  if(!confirm('Vraiment sûr ? Aucune récupération possible.')) return;
+  wipeDeviceData();
+}
+
+/* --- Reglages --- */
+function renderPinSettings(){
+  const box = document.getElementById('pin-settings');
+  if(!box) return;
+  const cfg = pinConfig();
+  const warn = syncEnabled() ? '' : '<p class="help" style="color:var(--amber)">La synchronisation n\'est pas activée sur cet appareil : en cas de code oublié, il faudra tout effacer ici.</p>';
+  if(!pinEnabled(cfg)){
+    box.innerHTML = warn + '<div class="actions"><button class="btn btn-primary" id="btn-pin-enable">Activer le code PIN</button></div>';
+    document.getElementById('btn-pin-enable').onclick = () => pinShowOverlay('setup1', {onDone: () => { renderPinSettings(); toast('Code PIN activé.', 'success'); }});
+    return;
+  }
+  const cur = pinDelayMs(cfg) / 60000;
+  const label = m => m === 0 ? 'Immédiatement' : (m + ' minute' + (m > 1 ? 's' : ''));
+  box.innerHTML = '<p style="font-size:14px;margin:0 0 12px">🔒 Code actif sur cet appareil.</p>'
+    + '<label class="pin-settings-row">Redemander le code après une absence de '
+    + '<select id="pin-delay">' + PIN_DELAYS_MIN.map(m => '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + label(m) + '</option>').join('') + '</select></label>'
+    + warn
+    + '<div class="actions"><button class="btn btn-secondary" id="btn-pin-change">Changer le code</button>'
+    + '<button class="btn btn-secondary" id="btn-pin-disable">Désactiver</button></div>';
+  document.getElementById('pin-delay').onchange = e => {
+    const c = pinConfig();
+    c.delay_min = Number(e.target.value);
+    savePinConfig(c);
+    toast('Délai enregistré : ' + label(c.delay_min).toLowerCase() + '.', 'success');
+  };
+  document.getElementById('btn-pin-change').onclick = () => pinShowOverlay('verify', {onDone: () =>
+    pinShowOverlay('setup1', {onDone: () => { renderPinSettings(); toast('Code modifié.', 'success'); }})
+  });
+  document.getElementById('btn-pin-disable').onclick = () => pinShowOverlay('verify', {onDone: () => {
+    try{ localStorage.removeItem(PIN_LOCK_KEY); }catch(e){}
+    renderPinSettings();
+    toast('Code PIN désactivé sur cet appareil.', 'success');
+  }});
+}
+
+/* --- Branchement --- */
+function pinInit(){
+  document.getElementById('pin-pad').addEventListener('click', e => {
+    const b = e.target.closest('[data-k]');
+    if(b) pinPress(b.dataset.k);
+  });
+  document.getElementById('pin-cancel').addEventListener('click', pinCancel);
+  document.getElementById('pin-forgot').addEventListener('click', pinShowRecover);
+  document.getElementById('pin-back').addEventListener('click', () => { pinShowPad(); pinRender(); });
+  document.getElementById('pin-token-btn').addEventListener('click', pinRecoverSubmit);
+  document.getElementById('pin-token').addEventListener('keydown', e => { if(e.key === 'Enter') pinRecoverSubmit(); });
+  document.getElementById('pin-wipe-btn').addEventListener('click', pinWipe);
+
+  // Clavier physique (PC)
+  document.addEventListener('keydown', e => {
+    if(!pinIsLocked() || document.getElementById('pin-recover-view').style.display !== 'none') return;
+    if(/^[0-9]$/.test(e.key)){ e.preventDefault(); pinPress(e.key); }
+    else if(e.key === 'Backspace'){ e.preventDefault(); pinPress('del'); }
+    else if(e.key === 'Escape'){ pinCancel(); }
+  });
+
+  // Arriere-plan : on masque le contenu tout de suite (apercu des apps recentes),
+  // et au retour on reverrouille si l'absence a dure au moins le delai.
+  document.addEventListener('visibilitychange', () => {
+    const cfg = pinConfig();
+    if(!pinEnabled(cfg)) return;
+    if(document.visibilityState === 'hidden'){
+      if(!pinAppOpen()) return;
+      _pinHiddenAt = Date.now();
+      cfg.left_at = _pinHiddenAt;
+      savePinConfig(cfg);
+      if(pinDelayMs(cfg) === 0) pinLock();
+      else document.documentElement.classList.add('pin-cover');
+    } else {
+      document.documentElement.classList.remove('pin-cover');
+      if(pinShouldLockOnReturn(cfg, _pinHiddenAt, Date.now())) pinLock();
+      _pinHiddenAt = null;
+    }
+  });
+  // Rechargement pendant que l'app est visible et ouverte (ex. mise a jour) : pas de code redemande
+  // dans le delai. Si l'app est en arriere-plan, on garde l'heure de depart (sinon un arret tardif
+  // par le systeme effacerait la duree d'absence).
+  window.addEventListener('pagehide', () => {
+    const cfg = pinConfig();
+    if(pinEnabled(cfg) && pinAppOpen() && document.visibilityState === 'visible'){
+      cfg.left_at = Date.now();
+      savePinConfig(cfg);
+    }
+  });
+
+  if(pinIsLocked()){ _pin.mode = 'unlock'; pinRender(); }
+}
+
+/* ============================================================
    INIT
    ============================================================ */
 
 function init(){
+  pinInit();
   loadData();
   // Appliquer le skin sauvegardé
   applySkin(state.data.settings.skin || 'minuit');
@@ -6441,13 +6890,7 @@ function init(){
   document.getElementById('btn-reset').addEventListener('click', () => {
     if(confirm("Effacer définitivement toutes les données ? Cette action est irréversible.")){
       if(confirm("Vraiment sûr ? Aucune récupération possible.")){
-        localStorage.removeItem(STORAGE_DATA);
-        localStorage.removeItem(STORAGE_SYNC);
-        localStorage.removeItem(SYNC_BACKUP_KEY);
-        localStorage.removeItem(REMINDER_FIRED_KEY);
-        localStorage.removeItem(ARCHIVE_KEY);
-        localStorage.removeItem(ENTRY_PROGRESS_KEY);
-        location.reload();
+        wipeDeviceData();
       }
     }
   });
