@@ -108,7 +108,10 @@ input:focus,textarea:focus,select:focus,button:focus{outline:2px solid var(--tea
 .activities-cat-label{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:500;margin-top:8px}
 .qn-note-item{background:var(--bg-3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px}
 .qn-note-time{font-size:11px;color:var(--text-faint);margin-bottom:3px}
-.qn-note-text{font-size:14px;color:var(--text)}
+.qn-note-text{font-size:14px;color:var(--text);white-space:pre-wrap}
+.qn-day-label{font-size:12px;font-weight:600;color:var(--text-dim);margin:10px 0 6px}
+.qn-day-hint{font-weight:400;color:var(--text-faint)}
+.qn-draft-hint{font-size:12px;color:var(--teal);margin-bottom:6px}
 .home-card .label{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:500}
 .home-card.primary .label{color:rgba(255,255,255,.7)}
 .home-card .title{font-size:16px;font-weight:600}
@@ -743,7 +746,7 @@ html.pin-cover .app,html.pin-cover .fab,html.pin-cover .modal-bg{visibility:hidd
    Architecture: vues, état, storage, entry guidée, stats, export
    ============================================================ */
 
-const VERSION = '1.31.0';
+const VERSION = '1.32.0';
 const STORAGE_DATA = 'tracker_v1_data';
 
 /* ===== ÉTAT GLOBAL ===== */
@@ -785,6 +788,9 @@ function loadData(){
     if(!state.data.quicknotes) state.data.quicknotes = [];
     if(!state.data.deleted_days) state.data.deleted_days = [];
     if(state.data.quicknotes_cleared_at === undefined) state.data.quicknotes_cleared_at = '';
+    // v1.32.0 : nettoyage des notes rapides par jour, et chaque note porte son jour logique
+    state.data.quicknotes_cleared_days = qnNormClearedDays(state.data.quicknotes_cleared_days);
+    quicknotesBackfillDates(state.data.quicknotes);
     if(state.data.pending_bedtime === undefined) state.data.pending_bedtime = null;
     // v1.28.0 : paliers de traitement editables et liste des prenoms (synchronises)
     if(!Array.isArray(state.data.treatments)) state.data.treatments = [];
@@ -862,6 +868,7 @@ function defaultData(){
     quicknotes: [],
     deleted_days: [],
     quicknotes_cleared_at: '',
+    quicknotes_cleared_days: {},
     pending_bedtime: null,
     treatments: [],
     persons_config: null
@@ -1223,7 +1230,7 @@ function renderHome(){
   const qnCount = (state.data.quicknotes || []).length;
   const fab = document.getElementById('fab-quicknote');
   fab.textContent = qnCount > 0 ? qnCount : '+';
-  fab.title = qnCount > 0 ? `${qnCount} note${qnCount > 1 ? 's' : ''} du jour` : 'Note rapide';
+  fab.title = qnCount > 0 ? `${qnCount} note${qnCount > 1 ? 's' : ''} en attente` : 'Note rapide';
 
   renderAlerts();
   renderEntryProgressBanner();
@@ -1341,7 +1348,51 @@ function mergePersonsConfig(a, b){
   return JSON.parse(aj >= bj ? aj : bj);
 }
 
-/* Fusion complete de deux jeux de donnees {entries, deleted_days, quicknotes, quicknotes_cleared_at} */
+/* Notes rapides (v1.32.0) : chaque note appartient a un jour logique (bascule a 7h, heure locale).
+   Le nettoyage se fait par jour : valider la soiree du lundi n'efface que les notes du lundi. */
+function qnLogicalDateFromIso(iso){
+  const t = Date.parse(iso || '');
+  if(isNaN(t)) return '';
+  const d = new Date(t);
+  if(d.getHours() < 7) d.setDate(d.getDate() - 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function quicknoteDay(n){
+  if(n && typeof n.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.date)) return n.date;
+  return qnLogicalDateFromIso(n && n.created_at);
+}
+// Ajoute le jour aux anciennes notes qui n'en ont pas (deduit de created_at, sinon jour fourni)
+function quicknotesBackfillDates(notes, fallbackDay){
+  (notes || []).forEach(n => {
+    if(!n || typeof n !== 'object') return;
+    if(typeof n.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.date)) return;
+    const day = quicknoteDay(n) || fallbackDay || '';
+    if(day) n.date = day;
+  });
+  return notes;
+}
+// {date: iso} propre (tout ce qui n'est pas lisible est ignore)
+function qnNormClearedDays(m){
+  const out = {};
+  if(!m || typeof m !== 'object' || Array.isArray(m)) return out;
+  Object.keys(m).forEach(k => {
+    if(/^\d{4}-\d{2}-\d{2}$/.test(k) && typeof m[k] === 'string' && m[k]) out[k] = m[k];
+  });
+  return out;
+}
+// Union par jour, nettoyage le plus recent conserve. Cles triees (sortie deterministe).
+function mergeQnClearedDays(a, b){
+  const A = qnNormClearedDays(a), B = qnNormClearedDays(b), tmp = {};
+  Object.keys(A).concat(Object.keys(B)).forEach(k => {
+    const v = (A[k] || '') > (B[k] || '') ? A[k] : B[k];
+    if(v) tmp[k] = v;
+  });
+  const out = {};
+  Object.keys(tmp).sort().forEach(k => { out[k] = tmp[k]; });
+  return out;
+}
+
+/* Fusion complete de deux jeux de donnees {entries, deleted_days, quicknotes, quicknotes_cleared_at, quicknotes_cleared_days} */
 function mergeTrackerData(local, remote){
   const L = local || {}, R = remote || {};
   // 1. Registre des suppressions : union par date, suppression la plus recente conservee
@@ -1367,9 +1418,12 @@ function mergeTrackerData(local, remote){
     entries.push(e);
   });
   const deleted_days = Object.keys(tomb).sort().map(d => ({date: d, deleted_at: tomb[d]}));
-  // 4. Notes rapides : union dedoublonnee, purge de celles anterieures au dernier nettoyage (validation soir)
+  // 4. Notes rapides : union dedoublonnee, purge de celles deja consommees.
+  //    quicknotes_cleared_at : ancien nettoyage global (avant v1.32.0), conserve tel quel.
+  //    quicknotes_cleared_days : nettoyage par jour (v1.32.0), une note n'est purgee que par la soiree de son jour.
   const lc = L.quicknotes_cleared_at || '', rc = R.quicknotes_cleared_at || '';
   const clearedAt = lc > rc ? lc : rc;
+  const clearedDays = mergeQnClearedDays(L.quicknotes_cleared_days, R.quicknotes_cleared_days);
   const seen = {};
   const quicknotes = [];
   (L.quicknotes || []).concat(R.quicknotes || []).forEach(n => {
@@ -1378,7 +1432,12 @@ function mergeTrackerData(local, remote){
     if(seen[key]) return;
     seen[key] = true;
     if(n.created_at && clearedAt && n.created_at <= clearedAt) return;
-    quicknotes.push(JSON.parse(JSON.stringify(n)));
+    const day = quicknoteDay(n);
+    const cd = day ? clearedDays[day] : '';
+    if(cd && (!n.created_at || n.created_at <= cd)) return;
+    const copy = JSON.parse(JSON.stringify(n));
+    if(day && copy.date !== day) copy.date = day;
+    quicknotes.push(copy);
   });
   quicknotes.sort((x, y) => (x.created_at || '').localeCompare(y.created_at || ''));
   // 5. Coucher memorise : pression la plus recente
@@ -1386,7 +1445,7 @@ function mergeTrackerData(local, remote){
   // 6. Paliers de traitement et liste des prenoms (v1.28.0)
   const treatments = mergeTreatments(L.treatments, R.treatments);
   const persons_config = mergePersonsConfig(L.persons_config, R.persons_config);
-  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt, pending_bedtime: pending_bedtime, treatments: treatments, persons_config: persons_config};
+  return {entries: entries, deleted_days: deleted_days, quicknotes: quicknotes, quicknotes_cleared_at: clearedAt, quicknotes_cleared_days: clearedDays, pending_bedtime: pending_bedtime, treatments: treatments, persons_config: persons_config};
 }
 /* ===== SYNC-PURE-END ===== */
 
@@ -1442,7 +1501,7 @@ function startEntry(editId, session, forDate){
     }
   }
   let steps = state.entrySession === 'morning' ? MORNING_STEPS : [...EVENING_STEPS];
-  if(state.entrySession === 'evening' && state.data.quicknotes && state.data.quicknotes.length > 0 && state.entryDraft.date === logicalDateStr()){
+  if(state.entrySession === 'evening' && quicknotesForDay(state.entryDraft.date).length > 0){
     steps = ['quicknotes_review', ...steps];
   }
   state.entrySteps = steps;
@@ -2242,8 +2301,9 @@ if(step === 'positive_feelings'){
   }
 
   if(step === 'quicknotes_review'){
-    const notes = state.data.quicknotes || [];
-    const w = stepWrap(idx, "Notes du jour", "Effacées après validation.");
+    const notes = quicknotesForDay(d.date);
+    const qnTitle = d.date === logicalDateStr() ? "Notes du jour" : ("Notes du " + escapeHtml(formatDateLong(d.date)));
+    const w = stepWrap(idx, qnTitle, "Effacées après validation de cette soirée.");
     if(notes.length === 0){
       const p = document.createElement('p');
       p.style.color = 'var(--text-faint)';
@@ -2851,11 +2911,11 @@ async function nextStep(){
     } else {
       draft.evening_done = true;
       draft.evening_updated_at = _nowIso;
-      if(draft.date === logicalDateStr()){
-        // Les notes rapides ne sont consommees que par la session soir du jour courant
-        state.data.quicknotes = [];
-        state.data.quicknotes_cleared_at = _nowIso;
-      }
+      // Notes rapides : seules celles du jour de cette soiree sont consommees (v1.32.0),
+      // y compris en rattrapage. Les notes des autres jours restent en attente.
+      state.data.quicknotes = (state.data.quicknotes || []).filter(n => quicknoteDay(n) !== draft.date);
+      state.data.quicknotes_cleared_days = qnNormClearedDays(state.data.quicknotes_cleared_days);
+      state.data.quicknotes_cleared_days[draft.date] = _nowIso;
     }
     // Anti-doublon : si la date a été modifiée, fusionner avec l'entrée existante pour cette date
     const existingByDate = state.data.entries.find(e => e.date === draft.date && e.id !== draft.id);
@@ -5492,6 +5552,7 @@ function exportJSON(){
     deleted_days: state.data.deleted_days || [],
     quicknotes: state.data.quicknotes || [],
     quicknotes_cleared_at: state.data.quicknotes_cleared_at || '',
+    quicknotes_cleared_days: state.data.quicknotes_cleared_days || {},
     pending_bedtime: state.data.pending_bedtime || null,
     treatments: state.data.treatments || [],
     persons_config: state.data.persons_config || null
@@ -5616,6 +5677,8 @@ async function importJSON(file){
     if(Array.isArray(obj.deleted_days)) state.data.deleted_days = obj.deleted_days;
     if(Array.isArray(obj.quicknotes)) state.data.quicknotes = obj.quicknotes;
     if(typeof obj.quicknotes_cleared_at === 'string') state.data.quicknotes_cleared_at = obj.quicknotes_cleared_at;
+    state.data.quicknotes_cleared_days = qnNormClearedDays(obj.quicknotes_cleared_days);
+    quicknotesBackfillDates(state.data.quicknotes, logicalDateStr());
     state.data.pending_bedtime = obj.pending_bedtime || null;
     if(Array.isArray(obj.treatments)) state.data.treatments = obj.treatments;
     if(obj.persons_config !== undefined) state.data.persons_config = obj.persons_config || null;
@@ -6141,10 +6204,12 @@ window.saveReminders = async function(){
    ============================================================ */
 
 function showModal(html){
+  saveQuicknoteDraftNow();
   document.getElementById('modal-content').innerHTML = html;
   document.getElementById('modal-bg').classList.add('show');
 }
 window.closeModal = function(){
+  saveQuicknoteDraftNow();
   document.getElementById('modal-bg').classList.remove('show');
 };
 
@@ -6203,21 +6268,105 @@ window.recordBedtime = async function(){
    QUICKNOTES
    ============================================================ */
 
+/* Brouillon de la note en cours (v1.32.0) : cle locale a l'appareil, hors donnees
+   synchronisees et hors exports (meme principe que tracker_entry_progress_v1).
+   Ecrit 0,5 s apres la frappe, et tout de suite a la fermeture de la fenetre,
+   a l'ouverture d'une autre fenetre, ou quand l'app passe en arriere-plan. */
+var QN_DRAFT_KEY = 'tracker_quicknote_draft_v1';
+var QN_DRAFT_DEBOUNCE_MS = 500;
+var _qnDraftTimer = null;
+
+/* QNDRAFT-PURE-BEGIN (logique pure, testable hors navigateur) */
+// Texte du brouillon stocke ('' si absent ou illisible)
+function qnDraftText(raw){
+  if(!raw) return '';
+  try{
+    const o = JSON.parse(raw);
+    return (o && typeof o.text === 'string') ? o.text : '';
+  }catch(e){ return ''; }
+}
+// Valeur a stocker, ou null pour effacer (texte vide ou seulement des espaces)
+function qnDraftRecord(text, nowIso){
+  if(typeof text !== 'string' || !text.trim()) return null;
+  return JSON.stringify({text: text, saved_at: nowIso});
+}
+// Notes regroupees par jour, jours et notes dans l'ordre chronologique
+function quicknotesGroupByDay(notes){
+  const byDay = {};
+  (notes || []).forEach(n => {
+    if(!n || !n.text) return;
+    const day = quicknoteDay(n) || '';
+    (byDay[day] = byDay[day] || []).push(n);
+  });
+  return Object.keys(byDay).sort().map(day => ({
+    day: day,
+    notes: byDay[day].slice().sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+  }));
+}
+/* QNDRAFT-PURE-END */
+
+function loadQuicknoteDraft(){
+  try{ return qnDraftText(localStorage.getItem(QN_DRAFT_KEY)); }catch(e){ return ''; }
+}
+function clearQuicknoteDraft(){
+  if(_qnDraftTimer){ clearTimeout(_qnDraftTimer); _qnDraftTimer = null; }
+  try{ localStorage.removeItem(QN_DRAFT_KEY); }catch(e){}
+}
+// Ecriture immediate, uniquement si la fenetre de note rapide est ouverte
+function saveQuicknoteDraftNow(){
+  if(_qnDraftTimer){ clearTimeout(_qnDraftTimer); _qnDraftTimer = null; }
+  const bg = document.getElementById('modal-bg');
+  const el = document.getElementById('qn-input');
+  if(!bg || !el || !bg.classList.contains('show')) return;
+  try{
+    const rec = qnDraftRecord(el.value, new Date().toISOString());
+    if(rec === null) localStorage.removeItem(QN_DRAFT_KEY);
+    else localStorage.setItem(QN_DRAFT_KEY, rec);
+  }catch(e){}
+}
+function scheduleQuicknoteDraftSave(){
+  if(_qnDraftTimer) clearTimeout(_qnDraftTimer);
+  _qnDraftTimer = setTimeout(saveQuicknoteDraftNow, QN_DRAFT_DEBOUNCE_MS);
+}
+function quicknotesForDay(day){
+  return (state.data.quicknotes || []).filter(n => n && n.text && quicknoteDay(n) === day);
+}
+function formatDateLong(s){
+  const d = new Date(s + 'T12:00:00');
+  if(isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
+}
+function quicknoteDayLabel(day){
+  const today = logicalDateStr();
+  if(day === today) return "Aujourd'hui";
+  const y = new Date(today + 'T12:00:00');
+  y.setDate(y.getDate() - 1);
+  const yStr = y.getFullYear() + '-' + String(y.getMonth()+1).padStart(2,'0') + '-' + String(y.getDate()).padStart(2,'0');
+  const base = day === yStr ? 'Hier' : formatDateLong(day);
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
 function openQuicknoteModal(){
   if(!state.data.quicknotes) state.data.quicknotes = [];
-  const existing = state.data.quicknotes;
+  const groups = quicknotesGroupByDay(state.data.quicknotes);
+  const today = logicalDateStr();
+  const onlyToday = groups.length === 1 && groups[0].day === today;
   let listHtml = '';
-  if(existing.length > 0){
-    listHtml = '<div style="margin-bottom:16px">' +
-      existing.map(n => `<div class="qn-note-item"><div class="qn-note-time">${n.time}</div><div class="qn-note-text">${escapeHtml(n.text)}</div></div>`).join('') +
-      '</div>';
+  if(groups.length > 0){
+    listHtml = '<div style="margin-bottom:16px">' + groups.map(g => {
+      const head = onlyToday ? '' : `<div class="qn-day-label">${escapeHtml(quicknoteDayLabel(g.day))}${g.day !== today ? ' <span class="qn-day-hint">(en attente de la soirée)</span>' : ''}</div>`;
+      return head + g.notes.map(n => `<div class="qn-note-item"><div class="qn-note-time">${escapeHtml(n.time || '')}</div><div class="qn-note-text">${escapeHtml(n.text)}</div></div>`).join('');
+    }).join('') + '</div>';
   }
+  const draft = loadQuicknoteDraft();
+  const draftLine = draft ? '<div class="qn-draft-hint">Brouillon restauré</div>' : '';
   const pb = loadPendingBedtime();
   const pbLine = pendingBedtimeActive(pb) ? `<div style="font-size:12px;color:var(--text-faint);margin-top:8px;text-align:center">Coucher mémorisé : ${escapeHtml(pb.time.replace(':','h'))} (pré-rempli au prochain réveil)</div>` : '';
   const html = `
     <h3>Note rapide</h3>
     ${listHtml}
-    <textarea id="qn-input" placeholder="Ce que tu veux retenir pour ce soir..." style="min-height:100px"></textarea>
+    ${draftLine}
+    <textarea id="qn-input" placeholder="Ce que tu veux retenir pour ce soir..." style="min-height:100px">${escapeHtml(draft)}</textarea>
     <div style="margin:12px 0 28px">
       <button class="btn btn-secondary" onclick="recordBedtime()" style="width:100%">🌙 Enregistrer l'heure du Coucher</button>
       ${pbLine}
@@ -6228,7 +6377,15 @@ function openQuicknoteModal(){
     </div>
   `;
   showModal(html);
-  setTimeout(()=>{ const el = document.getElementById('qn-input'); if(el) el.focus(); }, 50);
+  const input = document.getElementById('qn-input');
+  if(input) input.addEventListener('input', scheduleQuicknoteDraftSave);
+  setTimeout(()=>{
+    const el = document.getElementById('qn-input');
+    if(!el) return;
+    el.focus();
+    const end = el.value.length;
+    try{ el.setSelectionRange(end, end); }catch(e){}
+  }, 50);
 }
 
 window.saveQuicknote = async function(){
@@ -6238,8 +6395,12 @@ window.saveQuicknote = async function(){
   if(!state.data.quicknotes) state.data.quicknotes = [];
   const now = new Date();
   const time = now.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
-  state.data.quicknotes.push({time, text, created_at: now.toISOString()});
+  // Le jour de la note est celui ou elle est ajoutee (jour logique, bascule a 7h)
+  state.data.quicknotes.push({time, text, date: logicalDateStr(), created_at: now.toISOString()});
   await saveData();
+  // Note enregistree : brouillon supprime, et champ vide pour que la fermeture ne le recree pas
+  if(input) input.value = '';
+  clearQuicknoteDraft();
   closeModal();
   renderHome();
   toast('Note ajoutée.', 'success');
@@ -6267,8 +6428,8 @@ function syncEnabled(){ return !!syncConfig().token; }
 /* Donnees synchronisees : entrees + suppressions + quicknotes. Les settings restent locaux. */
 function syncPayloadFromData(d){
   return mergeTrackerData(
-    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || '', pending_bedtime: d.pending_bedtime || null, treatments: d.treatments || [], persons_config: d.persons_config || null},
-    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: '', pending_bedtime: null, treatments: [], persons_config: null}
+    {entries: d.entries || [], deleted_days: d.deleted_days || [], quicknotes: d.quicknotes || [], quicknotes_cleared_at: d.quicknotes_cleared_at || '', quicknotes_cleared_days: d.quicknotes_cleared_days || {}, pending_bedtime: d.pending_bedtime || null, treatments: d.treatments || [], persons_config: d.persons_config || null},
+    {entries: [], deleted_days: [], quicknotes: [], quicknotes_cleared_at: '', quicknotes_cleared_days: {}, pending_bedtime: null, treatments: [], persons_config: null}
   );
 }
 
@@ -6375,6 +6536,7 @@ async function syncNow(manual){
       state.data.deleted_days = merged.deleted_days;
       state.data.quicknotes = merged.quicknotes;
       state.data.quicknotes_cleared_at = merged.quicknotes_cleared_at;
+      state.data.quicknotes_cleared_days = merged.quicknotes_cleared_days || {};
       state.data.pending_bedtime = merged.pending_bedtime || null;
       state.data.treatments = merged.treatments || [];
       state.data.persons_config = merged.persons_config || null;
@@ -6718,7 +6880,7 @@ async function pinRecoverSubmit(){
 
 // Efface tout ce que l'app stocke sur cet appareil (la copie Gist n'est pas touchee)
 function wipeDeviceData(){
-  [STORAGE_DATA, STORAGE_SYNC, SYNC_BACKUP_KEY, REMINDER_FIRED_KEY, ARCHIVE_KEY, ENTRY_PROGRESS_KEY, PIN_LOCK_KEY]
+  [STORAGE_DATA, STORAGE_SYNC, SYNC_BACKUP_KEY, REMINDER_FIRED_KEY, ARCHIVE_KEY, ENTRY_PROGRESS_KEY, PIN_LOCK_KEY, QN_DRAFT_KEY]
     .forEach(k => { try{ localStorage.removeItem(k); }catch(e){} });
   location.reload();
 }
@@ -6852,6 +7014,11 @@ function init(){
     if(document.visibilityState === 'hidden') saveEntryProgress();
   });
   window.addEventListener('pagehide', saveEntryProgress);
+  // Brouillon de note rapide : meme filet de securite
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden') saveQuicknoteDraftNow();
+  });
+  window.addEventListener('pagehide', saveQuicknoteDraftNow);
 
   // Stats tabs
   document.getElementById('stats-tabs').addEventListener('click', e => {
